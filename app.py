@@ -158,10 +158,12 @@ def get_futures_minute_ohlcv(token, futures_code, hour_cls_code="60"):
     """
     headers = auth_headers(token, APP_KEY, APP_SECRET, "FHKIF03020200")
     today = datetime.today().strftime("%Y%m%d")
+    now_hhmmss = datetime.today().strftime("%H%M%S")
     params = {
         "FID_COND_MRKT_DIV_CODE": "F",
         "FID_INPUT_ISCD": futures_code.strip(),
         "FID_INPUT_DATE_1": today,
+        "FID_INPUT_HOUR_1": now_hhmmss,
         "FID_HOUR_CLS_CODE": hour_cls_code,
         "FID_PW_DATA_INCU_YN": "Y",
         "FID_FAKE_TICK_INCU_YN": "N",
