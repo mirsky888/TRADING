@@ -504,8 +504,9 @@ if st.session_state.get("조회완료") and APP_KEY and APP_SECRET:
                 minute_dfs_for_baseline["3분봉"] = (df_3min, 0.5)
             if df_15min is not None:
                 minute_dfs_for_baseline["15분봉"] = (df_15min, 1.0)
+            recent_daily_df = df.tail(20)  # 조회기간 전체가 아닌 최근 20거래일만 사용 (채널 계산과 동일 구간)
             baseline_md = analyze_sangang_baseline(
-                df["종가"].iloc[-1], df, minute_dfs_for_baseline, daily_threshold=zigzag_pct,
+                df["종가"].iloc[-1], recent_daily_df, minute_dfs_for_baseline, daily_threshold=zigzag_pct,
             )
             st.markdown(baseline_md)
 
