@@ -46,8 +46,8 @@ def get_access_token():
     headers = {"content-type": "application/json"}
     body = {
         "grant_type": "client_credentials",
-        "appkey": PSo4AeQ1opKjx2cXoMxjYlkLOPZ4DixWrhzW
-        "appsecret": yxbndw4btvVbae+DqHJKgxFZdghnNSIGCTpIxtVva6c76P+vsAQX31CNqzPiafADxmCD2DHxQ0MGtePgde6XiZWi1Fvgf/ALvUHv8Eo36DyakIgQxq0nJHlCSgtonX2p1pDZo/Yt1ErfxtrgVCIbzKi17yUTIMjVBvSp2xj9vS2KnuTw5oU=
+        "appkey": PSmDVHmVMJAuZ1uoC8bhZ8WeYtS3LrIXoAF7
+        "appsecret": c/jvVP4aUhe10hG5bdCUNEFIGryiI1gOty1dN0U81mSC5okeJMypknqUTCY7DNF5eHOsj9ZAGeFMfKAjSgq8L1H9ZVs94Ks0OILJ7STvBVirhqh32AbJN0tKn6YhmwiWlOtoZDjKWlNWKO2lzyztuAmNGvFhi4ns5hrne97tlSGgjlIbzHg=
     }
     res = requests.post(f"{URL_BASE}/oauth2/tokenP", headers=headers, data=json.dumps(body))
     res.raise_for_status()
