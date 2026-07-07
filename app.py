@@ -208,6 +208,7 @@ if st.button("조회 시작") and APP_KEY and APP_SECRET and stock_code:
 
             st.subheader("2. 일봉 + 지표")
             df = get_daily_ohlcv(token, stock_code, start, end)
+            related_dfs = {}
         else:
             st.subheader("1~2. 선물 일봉 데이터")
 
@@ -234,6 +235,14 @@ if st.button("조회 시작") and APP_KEY and APP_SECRET and stock_code:
                 latest = df.iloc[-1]
                 st.metric("최근 종가", f"{latest['종가']:,.2f}")
 
+            # 상관관계 분석용 관련종목 (KOSPI200 선물 세력방향 근사에 활용)
+            related_dfs = {}
+            try:
+                related_dfs["SK하이닉스"] = get_daily_ohlcv(token, "000660", start, end)
+                related_dfs["삼성전자"] = get_daily_ohlcv(token, "005930", start, end)
+            except Exception:
+                st.caption("⚠️ 관련종목(SK하이닉스/삼성전자) 조회 실패 - 세력방향 분석에서 제외됩니다")
+
         df = add_indicators(df)
         st.dataframe(df.tail(20).sort_values("일자", ascending=False), use_container_width=True)
 
@@ -254,8 +263,7 @@ if st.button("조회 시작") and APP_KEY and APP_SECRET and stock_code:
         c2.line_chart(df.set_index("일자")[["MACD", "Signal"]])
 
         st.subheader("6. 통합매매법 15항목 자동 분석 (규칙 기반)")
-        report_md = generate_report(df.rename(columns={c: c for c in df.columns}),
-                                     stock_name=stock_code)
+        report_md = generate_report(df, stock_name=stock_code, related_dfs=related_dfs)
         st.markdown(report_md)
 
     except Exception as e:
