@@ -117,6 +117,64 @@ def analyze_correlation(main_df: pd.DataFrame, related_dfs: dict) -> list:
     return lines
 
 
+def analyze_bangjang_pattern(df: pd.DataFrame, a_start_val: float, a_end_val: float,
+                              a_start_date, a_end_date, a_direction: str,
+                              price: float) -> list:
+    """
+    A파(폭락 또는 급등) 이후의 B파(반등/되돌림), C파(재하락/재상승) 진행 단계를
+    실제 캔들 데이터로 추적해 방장패턴을 근사 판단한다.
+    a_direction이 '하락(고점→저점)'인 경우를 기준으로 설명(반대 방향도 대칭 처리).
+    """
+    lines = []
+    is_down = a_direction.startswith("하락")
+    a_move = abs(a_start_val - a_end_val)
+    if a_move == 0:
+        lines.append("- A파 구간이 형성되지 않아 방장패턴 판단이 어렵습니다")
+        return lines
+
+    # A파 저점(또는 고점) 이후 데이터만 추출해 B파 탐색
+    after_a = df[df["일자"] > a_end_date]
+    if after_a.empty:
+        lines.append(f"- A파 형성({a_start_date.date()}~{a_end_date.date()}) 직후라 B파 데이터가 아직 없습니다")
+        return lines
+
+    if is_down:
+        b_row = after_a.loc[after_a["고가"].idxmax()]
+        b_val = b_row["고가"]
+        b_retrace = (b_val - a_end_val) / a_move * 100
+    else:
+        b_row = after_a.loc[after_a["저가"].idxmin()]
+        b_val = b_row["저가"]
+        b_retrace = (a_end_val - b_val) / a_move * 100
+
+    b_date = b_row["일자"]
+
+    # 현재가가 B파 형성 이후(=B파 고점/저점 지난 뒤) 데이터인지로 국면 판단
+    after_b = df[df["일자"] > b_date]
+    b_is_latest = after_b.empty or b_date == df["일자"].iloc[-1]
+
+    lines.append(f"- A파: {a_start_val:,.0f}({a_start_date.date()}) → {a_end_val:,.0f}({a_end_date.date()}), {a_direction}")
+    lines.append(f"- B파 후보: {b_val:,.0f}({b_date.date()}), A파의 {b_retrace:.1f}% 되돌림")
+
+    if b_retrace < 20:
+        lines.append("- → 아직 유의미한 B파 반등/되돌림이 나타나지 않음, A파 연장 또는 저점 다지기 국면")
+        phase = "A파 지속/저점 다지기"
+    elif b_is_latest and 20 <= b_retrace <= 80:
+        lines.append("- → 현재가가 B파 고점/저점 부근 — B파 진행 중이거나 막 정점을 찍은 상태")
+        phase = "B파 진행 중"
+    else:
+        c_progress = abs(price - b_val) / a_move * 100 if a_move else 0
+        lines.append(f"- → B파 이후 반대 방향 재진행 확인 (C파), 현재 C파 진행률 약 {c_progress:.0f}%(A파 대비)")
+        phase = "C파 진행 중"
+
+    lines.append(f"- 방장패턴 국면 판정: **{phase}**")
+
+    if 38 <= b_retrace <= 61.8:
+        lines.append("- B파 되돌림이 38~61.8% 밴드 안에 위치 — 전형적인 조정 패턴에 부합")
+
+    return lines
+
+
 def find_recent_swing(df: pd.DataFrame, lookback: int = 20):
     """
     최근 lookback 기간 내 최고/최저와 그 날짜를 찾아 A파 후보로 사용.
@@ -271,9 +329,13 @@ def generate_report(df: pd.DataFrame, stock_name: str = "", channel_window: int 
     lines.append("⚠️ 실제 수급(외국인/기관) 데이터는 별도 확인 필요")
     lines.append("")
 
-    # 11. 방장 패턴 (규칙 기반 근사)
-    lines.append("**11. 방장 패턴 분석 (규칙 기반 근사 — 참고용)**")
-    lines.append(f"- 채널 위치 {pos_pct:.1f}%, 스토캐스틱 {sto_k:.1f} 조합 기준 단순 패턴 참고만 가능")
+    # 11. 방장 패턴 (A-B-C 국면 추적)
+    lines.append("**11. 방장 패턴 분석 (A-B-C 국면 추적 — 참고용)**")
+    bangjang_lines = analyze_bangjang_pattern(
+        df, a_start_val, a_end_val, a_start_date, a_end_date, a_direction, price
+    )
+    lines.extend(bangjang_lines)
+    lines.append("⚠️ 정성적 판단 영역의 근사치이므로 실제 캔들 패턴과 다를 수 있습니다")
     lines.append("")
 
     # 12. 콜/풋 진입 자리
