@@ -33,7 +33,53 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def channel_levels(high: float, low: float) -> dict:
+def analyze_hourly_support_resistance(hourly_df: pd.DataFrame, current_price: float) -> list:
+    """
+    60분봉 데이터로 MA60/MA120 기울기와 현재가 위치, 최근 접촉 횟수를 판단해
+    산강 매매법의 O자리(최초 접촉)/X자리(재접촉) 근사 판단을 만든다.
+    hourly_df: 시간순 정렬된 종가/고가/저가 컬럼 포함 DataFrame (60분봉)
+    """
+    lines = []
+    if hourly_df is None or len(hourly_df) < 25:
+        lines.append("⚠️ 60분봉 데이터가 부족해 장기선 판단을 생략합니다 (최소 25개 필요)")
+        return lines
+
+    df = hourly_df.sort_values(hourly_df.columns[0] if "시간" not in hourly_df.columns else "시간").copy()
+    df["MA20"] = df["종가"].rolling(20).mean()
+    df["MA60"] = df["종가"].rolling(min(60, len(df) - 1)).mean()
+
+    ma60_now = df["MA60"].iloc[-1]
+    ma60_prev = df["MA60"].iloc[-6] if len(df) > 6 and pd.notna(df["MA60"].iloc[-6]) else df["MA60"].iloc[0]
+
+    if pd.isna(ma60_now):
+        lines.append("⚠️ MA60 계산에 필요한 60분봉 데이터가 부족합니다")
+        return lines
+
+    slope = "상승" if ma60_now > ma60_prev else "하락" if ma60_now < ma60_prev else "횡보"
+    position = "위" if current_price > ma60_now else "아래"
+
+    # 최근 20개 봉 동안 종가가 MA60을 교차(터치)한 횟수로 O/X 근사 판단
+    recent = df.tail(20).copy()
+    recent["above"] = recent["종가"] > recent["MA60"]
+    touches = (recent["above"] != recent["above"].shift(1)).sum()
+
+    lines.append(f"**9. 장기선 분석 (60분봉 MA60 기준 — 실제 데이터 반영)**")
+    lines.append(f"- 60분봉 MA60: {ma60_now:,.2f} ({slope} 기울기), 현재가 이 선 {position}에 위치")
+    lines.append(f"- 최근 20개 60분봉 동안 MA60 교차(터치) 횟수: {touches}회")
+
+    if slope == "하락" and position == "아래":
+        lines.append("- → 내려오는 장기선 아래: 저항으로 작동 중 (산강 원칙상 콜 진입 비우호적)")
+    elif slope == "상승" and position == "위":
+        lines.append("- → 올라가는 장기선 위: 지지로 작동 가능성")
+    else:
+        lines.append("- → 장기선과 가격이 교차 구간에 있어 방향 확정 어려움, 추가 확인 필요")
+
+    if touches <= 1:
+        lines.append("- 접촉 횟수 적음 → O자리(최초 접촉) 가능성, 신뢰도 상대적으로 높음")
+    else:
+        lines.append("- 접촉 횟수 많음 → X자리(재접촉) 가능성, 진입 신중 필요")
+
+    return lines
     rng = high - low
     return {
         "0%": low, "25%": low + rng * 0.25, "50%": low + rng * 0.5,
@@ -81,7 +127,8 @@ def find_recent_swing(df: pd.DataFrame, lookback: int = 20):
 
 
 def generate_report(df: pd.DataFrame, stock_name: str = "", channel_window: int = 20,
-                     swing_lookback: int = 20, related_dfs: dict = None) -> str:
+                     swing_lookback: int = 20, related_dfs: dict = None,
+                     hourly_df: pd.DataFrame = None) -> str:
     """
     df: 일자/종가/시가/고가/저가/거래량 컬럼을 가진 DataFrame (일자 오름차순 권장)
     반환: 마크다운 텍스트 (Streamlit st.markdown()으로 바로 출력 가능)
@@ -198,11 +245,14 @@ def generate_report(df: pd.DataFrame, stock_name: str = "", channel_window: int 
     lines.append("")
 
     # 9. 장기선 분석
-    lines.append("**9. 장기선 분석 (MA120 기준 대체)**")
-    if "MA120" in ma_vals:
-        rel = "위" if price > ma_vals["MA120"] else "아래"
-        lines.append(f"- MA120({ma_vals['MA120']:,.0f}) {rel}에 위치")
-    lines.append("⚠️ 정확한 O자리/X자리 판단은 60분봉 확인 필요")
+    if hourly_df is not None:
+        lines.extend(analyze_hourly_support_resistance(hourly_df, price))
+    else:
+        lines.append("**9. 장기선 분석 (MA120 기준 대체 — 60분봉 데이터 없음)**")
+        if "MA120" in ma_vals:
+            rel = "위" if price > ma_vals["MA120"] else "아래"
+            lines.append(f"- MA120({ma_vals['MA120']:,.0f}) {rel}에 위치")
+        lines.append("⚠️ 정확한 O자리/X자리 판단은 60분봉 확인 필요")
     lines.append("")
 
     # 10. 세력 방향 (거래량 기반 근사)
