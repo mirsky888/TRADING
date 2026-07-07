@@ -370,6 +370,27 @@ if st.session_state.get("조회완료") and APP_KEY and APP_SECRET:
             else:
                 st.caption("⚠️ 분봉 데이터를 하나도 가져오지 못해 산강 대시보드를 표시할 수 없습니다")
 
+            # --- 산강 매매기준선(멀티 타임프레임 A-B-C)도 최상단에 함께 표시 ---
+            df = None
+            try:
+                df = get_futures_daily_ohlcv(token, stock_code, start, end)
+            except Exception:
+                st.caption("⚠️ 일봉 데이터 조회 실패 - 매매기준선을 표시할 수 없습니다")
+
+            if df is not None and not df.empty and (df_3min is not None or df_15min is not None):
+                minute_dfs_for_baseline = {}
+                if df_3min is not None:
+                    minute_dfs_for_baseline["3분봉"] = (df_3min, 0.5)
+                if df_15min is not None:
+                    minute_dfs_for_baseline["15분봉"] = (df_15min, 1.0)
+                recent_daily_df = df.tail(20)
+                baseline_price = dash_price if dash_price is not None else df["종가"].iloc[-1]
+                baseline_md = analyze_sangang_baseline(
+                    baseline_price, recent_daily_df, minute_dfs_for_baseline, daily_threshold=zigzag_pct,
+                )
+                st.markdown(baseline_md)
+                st.markdown("---")
+
             st.subheader("1~2. 선물 일봉 데이터")
 
             # --- 디버그: API 원본 응답 확인용 (문제 해결 후 지워도 됩니다) ---
@@ -390,7 +411,8 @@ if st.session_state.get("조회완료") and APP_KEY and APP_SECRET:
                 st.json(debug_res.json())
             # --- 디버그 끝 ---
 
-            df = get_futures_daily_ohlcv(token, stock_code, start, end)
+            if df is None:
+                df = get_futures_daily_ohlcv(token, stock_code, start, end)
             if len(df) > 0:
                 latest = df.iloc[-1]
                 st.metric("최근 종가", f"{latest['종가']:,.2f}")
@@ -512,19 +534,7 @@ if st.session_state.get("조회완료") and APP_KEY and APP_SECRET:
         report_md = generate_report(df, stock_name=stock_code, related_dfs=related_dfs,
                                      hourly_df=hourly_df, zigzag_threshold=zigzag_pct)
         st.markdown(report_md)
-
-        if asset_type != "주식" and (df_3min is not None or df_15min is not None):
-            st.subheader("7. 산강 매매기준선 (일봉/3분봉/15분봉 A-B-C 비교)")
-            minute_dfs_for_baseline = {}
-            if df_3min is not None:
-                minute_dfs_for_baseline["3분봉"] = (df_3min, 0.5)
-            if df_15min is not None:
-                minute_dfs_for_baseline["15분봉"] = (df_15min, 1.0)
-            recent_daily_df = df.tail(20)  # 조회기간 전체가 아닌 최근 20거래일만 사용 (채널 계산과 동일 구간)
-            baseline_md = analyze_sangang_baseline(
-                df["종가"].iloc[-1], recent_daily_df, minute_dfs_for_baseline, daily_threshold=zigzag_pct,
-            )
-            st.markdown(baseline_md)
+        # (산강 매매기준선은 최상단 대시보드 옆에 이미 표시됨)
 
     except Exception as e:
         st.error(f"오류 발생: {e}")
