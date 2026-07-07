@@ -13,6 +13,7 @@
 import streamlit as st
 import requests
 import json
+import time
 import pandas as pd
 from datetime import datetime, timedelta
 from integrated_analysis import (
@@ -205,9 +206,10 @@ def get_futures_daily_ohlcv(token, futures_code, start_date, end_date, chunk_day
 #     근거로 추정한 값입니다. 100% 검증되지 않았으므로, 아래 UI에서
 #     디버그 응답을 먼저 확인한 뒤 필요시 파라미터를 조정해야 할 수 있습니다.
 # =========================================================
-def get_futures_minute_ohlcv(token, futures_code, hour_cls_code="60"):
+def get_futures_minute_ohlcv(token, futures_code, hour_cls_code="60", max_retries=2):
     """
     hour_cls_code: 분봉 단위 (예: "3", "15", "60" 등으로 추정 - 실제 값은 디버그로 확인 필요)
+    max_retries: 요청 실패(레이트리밋/일시 서버오류 등) 시 재시도 횟수
     """
     headers = auth_headers(token, APP_KEY, APP_SECRET, "FHKIF03020200")
     today = datetime.today().strftime("%Y%m%d")
@@ -221,12 +223,20 @@ def get_futures_minute_ohlcv(token, futures_code, hour_cls_code="60"):
         "FID_PW_DATA_INCU_YN": "Y",
         "FID_FAKE_TICK_INCU_YN": "N",
     }
-    res = requests.get(
-        f"{URL_BASE}/uapi/domestic-futureoption/v1/quotations/inquire-time-fuopchartprice",
-        headers=headers, params=params,
-    )
-    res.raise_for_status()
-    return res.json()
+    last_err = None
+    for attempt in range(max_retries + 1):
+        try:
+            res = requests.get(
+                f"{URL_BASE}/uapi/domestic-futureoption/v1/quotations/inquire-time-fuopchartprice",
+                headers=headers, params=params,
+            )
+            res.raise_for_status()
+            return res.json()
+        except Exception as e:
+            last_err = e
+            if attempt < max_retries:
+                time.sleep(0.5 * (attempt + 1))  # 0.5초, 1.0초 순으로 대기 후 재시도
+    raise last_err
 
 
 def parse_futures_minute_ohlcv(raw_json):
@@ -338,6 +348,7 @@ if st.session_state.get("조회완료") and APP_KEY and APP_SECRET:
                     hourly_df = None
             except Exception:
                 st.caption("⚠️ 60분봉 자동 조회 실패")
+            time.sleep(0.3)  # 연속 호출 레이트리밋 방지
             try:
                 raw_3 = get_futures_minute_ohlcv(token, stock_code, "3")
                 df_3min = parse_futures_minute_ohlcv(raw_3)
@@ -345,6 +356,7 @@ if st.session_state.get("조회완료") and APP_KEY and APP_SECRET:
                     df_3min = None
             except Exception:
                 st.caption("⚠️ 3분봉 자동 조회 실패")
+            time.sleep(0.3)
             try:
                 raw_15 = get_futures_minute_ohlcv(token, stock_code, "15")
                 df_15min = parse_futures_minute_ohlcv(raw_15)
@@ -352,6 +364,7 @@ if st.session_state.get("조회완료") and APP_KEY and APP_SECRET:
                     df_15min = None
             except Exception:
                 st.caption("⚠️ 15분봉 자동 조회 실패")
+            time.sleep(0.3)
 
             dash_price = None
             if df_3min is not None and not df_3min.empty:
