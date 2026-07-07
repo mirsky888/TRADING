@@ -270,6 +270,7 @@ if st.session_state.get("조회완료") and APP_KEY and APP_SECRET:
             st.subheader("2. 일봉 + 지표")
             df = get_daily_ohlcv(token, stock_code, start, end)
             related_dfs = {}
+            hourly_df = None
         else:
             st.subheader("1~2. 선물 일봉 데이터")
 
@@ -303,6 +304,16 @@ if st.session_state.get("조회완료") and APP_KEY and APP_SECRET:
                 related_dfs["삼성전자"] = get_daily_ohlcv(token, "005930", start, end)
             except Exception:
                 st.caption("⚠️ 관련종목(SK하이닉스/삼성전자) 조회 실패 - 세력방향 분석에서 제외됩니다")
+
+            # 15항목 리포트 9번(장기선) 항목용 60분봉 자동 조회
+            hourly_df = None
+            try:
+                hourly_raw = get_futures_minute_ohlcv(token, stock_code, "60")
+                hourly_df = parse_futures_minute_ohlcv(hourly_raw)
+                if hourly_df.empty:
+                    hourly_df = None
+            except Exception:
+                st.caption("⚠️ 60분봉 자동 조회 실패 - 9번(장기선) 항목은 일봉 기준으로 대체됩니다")
 
             # --- 분봉 조회 및 표시 ---
             with st.expander("📈 분봉 데이터 (3분/15분/60분)", expanded=True):
@@ -357,7 +368,8 @@ if st.session_state.get("조회완료") and APP_KEY and APP_SECRET:
         c2.line_chart(df.set_index("일자")[["MACD", "Signal"]])
 
         st.subheader("6. 통합매매법 15항목 자동 분석 (규칙 기반)")
-        report_md = generate_report(df, stock_name=stock_code, related_dfs=related_dfs)
+        report_md = generate_report(df, stock_name=stock_code, related_dfs=related_dfs,
+                                     hourly_df=hourly_df)
         st.markdown(report_md)
 
     except Exception as e:
