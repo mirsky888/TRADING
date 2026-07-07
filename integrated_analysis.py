@@ -47,6 +47,27 @@ def channel_position_pct(price: float, high: float, low: float) -> float:
     return (price - low) / (high - low) * 100
 
 
+def analyze_correlation(main_df: pd.DataFrame, related_dfs: dict) -> list:
+    """
+    related_dfs: {"SK하이닉스": df, "삼성전자": df, ...} 형태.
+    각 df는 일자/종가 컬럼 필요. main_df와 날짜를 맞춰 최근 등락률·상관계수를 비교.
+    """
+    lines = []
+    main = main_df.set_index("일자")["종가"]
+    for name, rdf in related_dfs.items():
+        if rdf is None or len(rdf) < 5:
+            continue
+        r = rdf.set_index("일자")["종가"]
+        joined = pd.concat([main, r], axis=1, join="inner")
+        joined.columns = ["main", "related"]
+        if len(joined) < 5:
+            continue
+        corr = joined["main"].pct_change().corr(joined["related"].pct_change())
+        recent_change = (r.iloc[-1] - r.iloc[-2]) / r.iloc[-2] * 100 if len(r) > 1 else 0
+        lines.append(f"- {name}: 최근 등락률 {recent_change:+.2f}%, 지수와의 상관계수 {corr:.2f}")
+    return lines
+
+
 def find_recent_swing(df: pd.DataFrame, lookback: int = 20):
     """
     최근 lookback 기간 내 최고/최저와 그 날짜를 찾아 A파 후보로 사용.
@@ -60,7 +81,7 @@ def find_recent_swing(df: pd.DataFrame, lookback: int = 20):
 
 
 def generate_report(df: pd.DataFrame, stock_name: str = "", channel_window: int = 20,
-                     swing_lookback: int = 20) -> str:
+                     swing_lookback: int = 20, related_dfs: dict = None) -> str:
     """
     df: 일자/종가/시가/고가/저가/거래량 컬럼을 가진 DataFrame (일자 오름차순 권장)
     반환: 마크다운 텍스트 (Streamlit st.markdown()으로 바로 출력 가능)
@@ -185,12 +206,15 @@ def generate_report(df: pd.DataFrame, stock_name: str = "", channel_window: int 
     lines.append("")
 
     # 10. 세력 방향 (거래량 기반 근사)
-    lines.append("**10. 세력 방향 (거래량 기반 근사 — 참고용)**")
+    lines.append("**10. 세력 방향 (거래량 + 관련종목 상관관계 근사 — 참고용)**")
     if "거래량" in df.columns and len(df) >= 20:
         vol_avg20 = df["거래량"].tail(20).mean()
         vol_latest = latest["거래량"]
         vol_state = "평균 대비 급증" if vol_latest > vol_avg20 * 1.5 else "평상 수준"
         lines.append(f"- 최근 거래량 {vol_latest:,.0f} vs 20일 평균 {vol_avg20:,.0f} → {vol_state}")
+    if related_dfs:
+        corr_lines = analyze_correlation(df, related_dfs)
+        lines.extend(corr_lines)
     lines.append("⚠️ 실제 수급(외국인/기관) 데이터는 별도 확인 필요")
     lines.append("")
 
