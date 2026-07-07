@@ -15,7 +15,7 @@ import requests
 import json
 import pandas as pd
 from datetime import datetime, timedelta
-from integrated_analysis import generate_report, find_zigzag_pivots, describe_wave_sequence
+from integrated_analysis import generate_report, find_zigzag_pivots, describe_wave_sequence, analyze_minute_abc
 
 st.set_page_config(page_title="통합매매법 KIS 대시보드", layout="wide")
 
@@ -381,6 +381,12 @@ if st.session_state.get("조회완료") and APP_KEY and APP_SECRET:
                         )
                         for line in wave_lines:
                             st.write(line)
+
+                        st.markdown("---")
+                        abc_lines = analyze_minute_abc(
+                            minute_df, latest_price, threshold_pct=minute_zigzag_pct, time_col="시간"
+                        )
+                        st.markdown("\n".join(abc_lines))
             # --- 분봉 끝 ---
 
             # --- 4단계: 옵션 프리미엄 디버그 (종목코드 확인 후 테스트) ---
