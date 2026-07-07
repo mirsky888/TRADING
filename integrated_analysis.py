@@ -47,8 +47,12 @@ def channel_position_pct(price: float, high: float, low: float) -> float:
     return (price - low) / (high - low) * 100
 
 
-def find_recent_swing(df: pd.DataFrame, lookback: int = 60):
-    """최근 lookback 기간 내 최고/최저와 그 날짜를 찾아 A파 후보로 사용."""
+def find_recent_swing(df: pd.DataFrame, lookback: int = 20):
+    """
+    최근 lookback 기간 내 최고/최저와 그 날짜를 찾아 A파 후보로 사용.
+    channel_window(기본 20일)와 동일한 범위를 기본값으로 써서,
+    3번(채널 계산)에서 보는 것과 같은 구간을 파동 분석에도 일관되게 적용한다.
+    """
     recent = df.tail(lookback)
     high_row = recent.loc[recent["고가"].idxmax()]
     low_row = recent.loc[recent["저가"].idxmin()]
@@ -56,7 +60,7 @@ def find_recent_swing(df: pd.DataFrame, lookback: int = 60):
 
 
 def generate_report(df: pd.DataFrame, stock_name: str = "", channel_window: int = 20,
-                     swing_lookback: int = 60) -> str:
+                     swing_lookback: int = 20) -> str:
     """
     df: 일자/종가/시가/고가/저가/거래량 컬럼을 가진 DataFrame (일자 오름차순 권장)
     반환: 마크다운 텍스트 (Streamlit st.markdown()으로 바로 출력 가능)
@@ -86,14 +90,18 @@ def generate_report(df: pd.DataFrame, stock_name: str = "", channel_window: int 
 
     # 파동 근사 (A파: swing_lookback일 내 최고->최저, 또는 최저->최고 중 더 최근 구간)
     high_row, low_row = find_recent_swing(df, swing_lookback)
+    a_high = high_row["고가"]
+    a_low = low_row["저가"]
     if high_row["일자"] < low_row["일자"]:
-        a_start, a_end = high_row, low_row
+        a_start_val, a_end_val = a_high, a_low
+        a_start_date, a_end_date = high_row["일자"], low_row["일자"]
         a_direction = "하락(고점→저점)"
     else:
-        a_start, a_end = low_row, high_row
+        a_start_val, a_end_val = a_low, a_high
+        a_start_date, a_end_date = low_row["일자"], high_row["일자"]
         a_direction = "상승(저점→고점)"
-    a_move = abs(a_end["종가"] - a_start["종가"])
-    retrace_pct = abs(price - a_end["종가"]) / a_move * 100 if a_move else 0
+    a_move = abs(a_end_val - a_start_val)
+    retrace_pct = abs(price - a_end_val) / a_move * 100 if a_move else 0
 
     # C파 목표 (B파 고점 - A파 하락폭, 방향에 따라 부호 조정)
     if a_direction.startswith("하락"):
@@ -156,9 +164,10 @@ def generate_report(df: pd.DataFrame, stock_name: str = "", channel_window: int 
 
     # 7. 파동 위치 (근사치 - 참고용)
     lines.append("**7. 파동 위치 (엘리엇 + ABC, 규칙 기반 근사치 — 참고용)**")
-    lines.append(f"- 추정 A파: {a_start['종가']:,.0f}({a_start['일자'].date()}) → "
-                 f"{a_end['종가']:,.0f}({a_end['일자'].date()}), {a_direction}")
+    lines.append(f"- 추정 A파: {a_start_val:,.0f}({a_start_date.date()}) → "
+                 f"{a_end_val:,.0f}({a_end_date.date()}), {a_direction}")
     lines.append(f"- 현재가는 A파의 {retrace_pct:.1f}% 되돌림 수준")
+    lines.append(f"- (탐색 구간: 최근 {swing_lookback}거래일 — 채널 계산과 동일 구간)")
     lines.append("⚠️ 이 항목은 정성적 판단이 필요한 영역이라 자동 계산은 참고용입니다")
     lines.append("")
 
