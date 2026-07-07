@@ -162,6 +162,7 @@ def get_futures_minute_ohlcv(token, futures_code, hour_cls_code="60"):
         "FID_INPUT_ISCD": futures_code.strip(),
         "FID_HOUR_CLS_CODE": hour_cls_code,
         "FID_PW_DATA_INCU_YN": "Y",
+        "FID_FAKE_TICK_INCU_YN": "N",
     }
     res = requests.get(
         f"{URL_BASE}/uapi/domestic-futureoption/v1/quotations/inquire-time-fuopchartprice",
