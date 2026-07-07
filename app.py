@@ -15,7 +15,7 @@ import requests
 import json
 import pandas as pd
 from datetime import datetime, timedelta
-from integrated_analysis import generate_report
+from integrated_analysis import generate_report, find_zigzag_pivots, describe_wave_sequence
 
 st.set_page_config(page_title="통합매매법 KIS 대시보드", layout="wide")
 
@@ -23,7 +23,7 @@ st.set_page_config(page_title="통합매매법 KIS 대시보드", layout="wide")
 # 0. 앱키/시크릿 - Streamlit Cloud의 Secrets에서 불러옵니다
 #    (Settings -> Secrets 에서 아래처럼 등록)
 #    APP_KEY = "PSMASpQKNi6pFrOKWAksNJafC0Iree9GWA4s"
-#    APP_SECRET = "zgJPXDmrSO6OltPRNE5kdTgouqDX1waPfmkn4e98XK6OcSsx/XUQnrjGqjTPy6sqcO58pgdAw3qbOZK+xg9DF0eS4bh0vPBeU1Qu3SgsueBmGUJ/Ulwq3G95cnqgBgz8vvzj9315TFwYjuwxamLfz6W+ikNdmIe3OkOtg2XDvq+RjZZlBKc="
+#    APP_SECRET = "zgJPXDmrSO6OltPRNE5kdTgouqDX1waPfmkn4e98XK6OcSsx/XUQnrjGqjTPy6sqcO58pgdAw3qbOZK+xg9DF0eS4bh0vPBeU1Qu3SgsueBmGUJ/Ulwq3G95cnqgBgz8vvzj9315TFwYjuwxamLfz6W+ikNdmIe3OkOtg2XDvq+RjZZlBK
 # =========================================================
 try:
     APP_KEY = st.secrets["APP_KEY"]
@@ -340,6 +340,10 @@ if st.session_state.get("조회완료") and APP_KEY and APP_SECRET:
             with st.expander("📈 분봉 데이터 (3분/15분/60분)", expanded=True):
                 minute_unit = st.selectbox("분봉 단위", ["60", "15", "3"], index=0,
                                             key="minute_unit_select")
+                minute_zigzag_pct = st.slider(
+                    "분봉 파동 민감도 (%) - 3분/15분봉은 일봉보다 훨씬 작게 설정 권장",
+                    0.1, 3.0, 0.5, 0.1, key="minute_zigzag_slider"
+                )
                 if st.button("분봉 조회", key="minute_query_btn"):
                     raw = get_futures_minute_ohlcv(token, stock_code, minute_unit)
                     minute_df = parse_futures_minute_ohlcv(raw)
@@ -367,6 +371,16 @@ if st.session_state.get("조회완료") and APP_KEY and APP_SECRET:
                         except Exception as e:
                             st.caption(f"⚠️ 지표 계산 생략 (필요 컬럼 부족): {e}")
                             st.line_chart(minute_df.set_index(idx_col)[["종가"]])
+
+                        # 분봉 기준 촘촘한 파동 구조
+                        st.markdown(f"**{minute_unit}분봉 기준 파동 구조 (민감도 {minute_zigzag_pct}%)**")
+                        latest_price = minute_df["종가"].iloc[-1]
+                        m_pivots = find_zigzag_pivots(minute_df, threshold_pct=minute_zigzag_pct, time_col="시간")
+                        wave_lines = describe_wave_sequence(
+                            m_pivots, latest_price, max_waves=8, time_col="시간", show_date_only=False
+                        )
+                        for line in wave_lines:
+                            st.write(line)
             # --- 분봉 끝 ---
 
             # --- 4단계: 옵션 프리미엄 디버그 (종목코드 확인 후 테스트) ---
