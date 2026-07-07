@@ -172,7 +172,35 @@ def get_futures_minute_ohlcv(token, futures_code, hour_cls_code="60"):
         f"{URL_BASE}/uapi/domestic-futureoption/v1/quotations/inquire-time-fuopchartprice",
         headers=headers, params=params,
     )
-    return res  # 원본 Response 그대로 반환 (디버그 후 파싱 함수 별도 작성 예정)
+    res.raise_for_status()
+    return res.json()
+
+
+def parse_futures_minute_ohlcv(raw_json):
+    """
+    get_futures_minute_ohlcv()의 raw JSON을 DataFrame으로 변환.
+    실제 output2 필드명이 예상과 다르면 아래 rename 딕셔너리만 고치면 됩니다.
+    """
+    rows = raw_json.get("output2", [])
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+    rename_map = {
+        "stck_bsop_date": "일자", "stck_cntg_hour": "시간",
+        "futs_prpr": "종가", "futs_oprc": "시가",
+        "futs_hgpr": "고가", "futs_lwpr": "저가",
+        "acml_vol": "거래량", "cntg_vol": "거래량",
+    }
+    df = df.rename(columns=rename_map)
+    keep = [c for c in ["일자", "시간", "종가", "시가", "고가", "저가", "거래량"] if c in df.columns]
+    df = df[keep]
+    for c in ["종가", "시가", "고가", "저가", "거래량"]:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+    # 시간 역순(최신이 먼저)으로 오는 경우가 많아 오름차순으로 정렬
+    if "시간" in df.columns:
+        df = df.sort_values("시간").reset_index(drop=True)
+    return df
 def add_indicators(df):
     df = df.copy()
     for p in [5, 10, 20, 60, 120]:
@@ -276,18 +304,38 @@ if st.session_state.get("조회완료") and APP_KEY and APP_SECRET:
             except Exception:
                 st.caption("⚠️ 관련종목(SK하이닉스/삼성전자) 조회 실패 - 세력방향 분석에서 제외됩니다")
 
-            # --- 2단계: 분봉 디버그 (실제 응답 확인용, 검증 전 단계) ---
-            with st.expander("🔍 [2단계 테스트] 분봉 API 원본 응답 확인"):
-                minute_unit = st.selectbox("분봉 단위 (추정값, 실제 응답 보고 조정)",
-                                            ["60", "15", "3"], index=0)
-                if st.button("분봉 디버그 조회"):
-                    minute_res = get_futures_minute_ohlcv(token, stock_code, minute_unit)
-                    st.write("상태 코드:", minute_res.status_code)
-                    try:
-                        st.json(minute_res.json())
-                    except Exception:
-                        st.write(minute_res.text)
-            # --- 디버그 끝 ---
+            # --- 분봉 조회 및 표시 ---
+            with st.expander("📈 분봉 데이터 (3분/15분/60분)", expanded=True):
+                minute_unit = st.selectbox("분봉 단위", ["60", "15", "3"], index=0,
+                                            key="minute_unit_select")
+                if st.button("분봉 조회", key="minute_query_btn"):
+                    raw = get_futures_minute_ohlcv(token, stock_code, minute_unit)
+                    minute_df = parse_futures_minute_ohlcv(raw)
+
+                    if minute_df.empty:
+                        st.error("분봉 데이터가 비어있습니다. 아래 원본 응답을 확인해주세요.")
+                        st.json(raw)
+                    else:
+                        # 필드명이 예상과 맞는지 확인할 수 있도록 원본 첫 항목도 함께 표시
+                        with st.expander("🔍 원본 응답 첫 항목 (필드명 확인용)"):
+                            if raw.get("output2"):
+                                st.json(raw["output2"][0])
+
+                        st.success(f"분봉 데이터 {len(minute_df)}개 로드 완료")
+                        st.dataframe(minute_df.tail(30), use_container_width=True)
+
+                        idx_col = "시간" if "시간" in minute_df.columns else minute_df.index
+                        try:
+                            minute_df = add_indicators(minute_df)
+                            st.line_chart(minute_df.set_index(idx_col)[
+                                [c for c in ["종가", "MA5", "MA20", "MA60"] if c in minute_df.columns]
+                            ])
+                            if "Sto_%K" in minute_df.columns:
+                                st.line_chart(minute_df.set_index(idx_col)[["Sto_%K", "Sto_%D"]])
+                        except Exception as e:
+                            st.caption(f"⚠️ 지표 계산 생략 (필요 컬럼 부족): {e}")
+                            st.line_chart(minute_df.set_index(idx_col)[["종가"]])
+            # --- 분봉 끝 ---
 
         df = add_indicators(df)
         st.dataframe(df.tail(20).sort_values("일자", ascending=False), use_container_width=True)
