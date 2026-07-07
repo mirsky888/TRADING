@@ -175,16 +175,17 @@ def analyze_bangjang_pattern(df: pd.DataFrame, a_start_val: float, a_end_val: fl
     return lines
 
 
-def find_zigzag_pivots(df: pd.DataFrame, threshold_pct: float = 3.0) -> pd.DataFrame:
+def find_zigzag_pivots(df: pd.DataFrame, threshold_pct: float = 3.0, time_col: str = "일자") -> pd.DataFrame:
     """
     가격이 threshold_pct(%) 이상 방향을 바꿀 때마다 전환점(고점/저점)을 기록해
     큰 구간 하나가 아니라 여러 개의 작은 스윙(1-2-3-4-5 흐름)을 잡아낸다.
     threshold_pct를 낮출수록 더 촘촘하게(민감하게) 잡히고, 높일수록 큰 흐름만 남는다.
-    반환: 일자/가격/구분(고점·저점) 컬럼을 가진 DataFrame, 시간순 정렬.
+    time_col: 시간축 컬럼명 ("일자"=일봉, "시간"=분봉 등 어느 쪽이든 사용 가능)
+    반환: [time_col]/가격/구분(고점·저점) 컬럼을 가진 DataFrame, 시간순 정렬.
     """
-    d = df.sort_values("일자").reset_index(drop=True)
+    d = df.sort_values(time_col).reset_index(drop=True)
     if len(d) < 3:
-        return pd.DataFrame(columns=["일자", "가격", "구분"])
+        return pd.DataFrame(columns=[time_col, "가격", "구분"])
 
     pivots = []
     # 첫 기준점
@@ -206,7 +207,7 @@ def find_zigzag_pivots(df: pd.DataFrame, threshold_pct: float = 3.0) -> pd.DataF
                 last_pivot_idx = i
                 last_pivot_price = price
             elif (last_pivot_price - price) / last_pivot_price * 100 >= threshold_pct:
-                pivots.append((d.loc[last_pivot_idx, "일자"], last_pivot_price, "고점"))
+                pivots.append((d.loc[last_pivot_idx, time_col], last_pivot_price, "고점"))
                 direction = "down"
                 last_pivot_idx = i
                 last_pivot_price = price
@@ -215,7 +216,7 @@ def find_zigzag_pivots(df: pd.DataFrame, threshold_pct: float = 3.0) -> pd.DataF
                 last_pivot_idx = i
                 last_pivot_price = price
             elif (price - last_pivot_price) / last_pivot_price * 100 >= threshold_pct:
-                pivots.append((d.loc[last_pivot_idx, "일자"], last_pivot_price, "저점"))
+                pivots.append((d.loc[last_pivot_idx, time_col], last_pivot_price, "저점"))
                 direction = "up"
                 last_pivot_idx = i
                 last_pivot_price = price
@@ -223,12 +224,13 @@ def find_zigzag_pivots(df: pd.DataFrame, threshold_pct: float = 3.0) -> pd.DataF
     # 마지막 진행 중인 전환점도 포함
     last_label = "고점" if direction == "up" else "저점" if direction == "down" else None
     if last_label:
-        pivots.append((d.loc[last_pivot_idx, "일자"], last_pivot_price, last_label))
+        pivots.append((d.loc[last_pivot_idx, time_col], last_pivot_price, last_label))
 
-    return pd.DataFrame(pivots, columns=["일자", "가격", "구분"])
+    return pd.DataFrame(pivots, columns=[time_col, "가격", "구분"])
 
 
-def describe_wave_sequence(pivots: pd.DataFrame, price: float, max_waves: int = 6) -> list:
+def describe_wave_sequence(pivots: pd.DataFrame, price: float, max_waves: int = 6,
+                            time_col: str = "일자", show_date_only: bool = True) -> list:
     """최근 스윙포인트들을 1-2-3-4-5 / A-B-C 스타일로 순서대로 나열해 설명."""
     lines = []
     if pivots.empty or len(pivots) < 2:
@@ -238,7 +240,9 @@ def describe_wave_sequence(pivots: pd.DataFrame, price: float, max_waves: int = 
     recent = pivots.tail(max_waves).reset_index(drop=True)
     lines.append(f"- 최근 전환점 {len(recent)}개 (촘촘한 파동 구조):")
     for i, row in recent.iterrows():
-        lines.append(f"  {i+1}. {row['구분']} {row['가격']:,.0f} ({row['일자'].date()})")
+        t = row[time_col]
+        t_str = t.date() if show_date_only and hasattr(t, "date") else t
+        lines.append(f"  {i+1}. {row['구분']} {row['가격']:,.0f} ({t_str})")
 
     last = recent.iloc[-1]
     move_from_last = (price - last["가격"]) / last["가격"] * 100
