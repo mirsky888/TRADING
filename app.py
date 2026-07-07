@@ -146,8 +146,28 @@ def get_futures_daily_ohlcv(token, futures_code, start_date, end_date):
 
 
 # =========================================================
-# 4. 통합매매법 지표 계산
+# 3-2. 국내선물옵션 분봉 조회 (3분/15분/60분 등)
+#   ※ tr_id "FHKIF03020200"과 엔드포인트명(inquire-time-fuopchartprice)은
+#     일봉 API(FHKIF03020100, inquire-daily-fuopchartprice)와의 명명 패턴을
+#     근거로 추정한 값입니다. 100% 검증되지 않았으므로, 아래 UI에서
+#     디버그 응답을 먼저 확인한 뒤 필요시 파라미터를 조정해야 할 수 있습니다.
 # =========================================================
+def get_futures_minute_ohlcv(token, futures_code, hour_cls_code="60"):
+    """
+    hour_cls_code: 분봉 단위 (예: "3", "15", "60" 등으로 추정 - 실제 값은 디버그로 확인 필요)
+    """
+    headers = auth_headers(token, APP_KEY, APP_SECRET, "FHKIF03020200")
+    params = {
+        "FID_COND_MRKT_DIV_CODE": "F",
+        "FID_INPUT_ISCD": futures_code.strip(),
+        "FID_HOUR_CLS_CODE": hour_cls_code,
+        "FID_PW_DATA_INCU_YN": "Y",
+    }
+    res = requests.get(
+        f"{URL_BASE}/uapi/domestic-futureoption/v1/quotations/inquire-time-fuopchartprice",
+        headers=headers, params=params,
+    )
+    return res  # 원본 Response 그대로 반환 (디버그 후 파싱 함수 별도 작성 예정)
 def add_indicators(df):
     df = df.copy()
     for p in [5, 10, 20, 60, 120]:
@@ -241,6 +261,19 @@ if st.button("조회 시작") and APP_KEY and APP_SECRET and stock_code:
                 related_dfs["삼성전자"] = get_daily_ohlcv(token, "005930", start, end)
             except Exception:
                 st.caption("⚠️ 관련종목(SK하이닉스/삼성전자) 조회 실패 - 세력방향 분석에서 제외됩니다")
+
+            # --- 2단계: 분봉 디버그 (실제 응답 확인용, 검증 전 단계) ---
+            with st.expander("🔍 [2단계 테스트] 분봉 API 원본 응답 확인"):
+                minute_unit = st.selectbox("분봉 단위 (추정값, 실제 응답 보고 조정)",
+                                            ["60", "15", "3"], index=0)
+                if st.button("분봉 디버그 조회"):
+                    minute_res = get_futures_minute_ohlcv(token, stock_code, minute_unit)
+                    st.write("상태 코드:", minute_res.status_code)
+                    try:
+                        st.json(minute_res.json())
+                    except Exception:
+                        st.write(minute_res.text)
+            # --- 디버그 끝 ---
 
         df = add_indicators(df)
         st.dataframe(df.tail(20).sort_values("일자", ascending=False), use_container_width=True)
