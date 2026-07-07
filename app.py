@@ -45,7 +45,7 @@ URL_BASE = (
 # =========================================================
 # 1. 인증
 # =========================================================
-@st.cache_data(ttl=60 * 60 * 12)  # 12시간 캐시 (토큰 재발급 최소화)
+@st.cache_data(ttl=60 * 60 * 23)  # 23시간 캐시 (KIS 토큰 24시간 유효, 하루 동안 재발급 최소화)
 def get_access_token(app_key, app_secret, url_base):
     headers = {"content-type": "application/json"}
     body = {"grant_type": "client_credentials", "appkey": app_key, "appsecret": app_secret}
@@ -181,11 +181,11 @@ if asset_type == "주식":
     stock_code = st.text_input("종목코드 입력 (예: 005930 삼성전자, 000810 삼성화재)", value="005930").strip()
 else:
     stock_code = st.text_input(
-        "선물 종목코드 입력 (예: 101S06 형식 - 정확한 코드는 KIS 종목정보파일/HTS에서 확인 필요)",
-        value="",
-        help="선물 종목코드는 만기월마다 바뀝니다. HTS에 표시되는 코드(F202609 등)와 "
-             "KIS API가 요구하는 코드 형식이 다를 수 있어, 오류가 나면 KIS Developers "
-             "포털의 '종목정보파일' 메뉴에서 정확한 코드를 확인해 입력해주세요.",
+        "선물 종목코드 입력 (KOSPI200 선물 기본값: A01609, 만기월 바뀌면 직접 수정)",
+        value="A01609",
+        help="선물 종목코드는 만기월마다 바뀝니다. 지금 기본값(A01609)은 KOSPI200 202609물 "
+             "기준입니다. 만기가 지나 종목코드가 바뀌면 KIS Developers 포털의 "
+             "'종목정보파일' 메뉴 또는 HTS에서 새 코드를 확인해 직접 수정해주세요.",
     ).strip()
 
 days = st.slider("조회 기간 (일)", 30, 180, 60)
