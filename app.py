@@ -132,7 +132,7 @@ def get_option_price(token, option_code):
     return res
 
 
-def get_futures_daily_ohlcv(token, futures_code, start_date, end_date):
+def _get_futures_daily_ohlcv_single(token, futures_code, start_date, end_date):
     headers = auth_headers(token, APP_KEY, APP_SECRET, "FHKIF03020100")
     params = {
         "FID_COND_MRKT_DIV_CODE": "F",
@@ -161,6 +161,37 @@ def get_futures_daily_ohlcv(token, futures_code, start_date, end_date):
             df[c] = pd.to_numeric(df[c], errors="coerce")
     df["일자"] = pd.to_datetime(df["일자"], format="%Y%m%d")
     return df.sort_values("일자").reset_index(drop=True)
+
+
+def get_futures_daily_ohlcv(token, futures_code, start_date, end_date, chunk_days=30):
+    """
+    KIS 선물옵션 일봉 API가 긴 기간(약 60일 이상) 요청 시 500 에러를 내는
+    경우가 있어, chunk_days(기본 30일) 단위로 잘라서 여러 번 요청한 뒤 합친다.
+    """
+    start_dt = datetime.strptime(start_date, "%Y%m%d")
+    end_dt = datetime.strptime(end_date, "%Y%m%d")
+
+    all_dfs = []
+    chunk_start = start_dt
+    while chunk_start <= end_dt:
+        chunk_end = min(chunk_start + timedelta(days=chunk_days - 1), end_dt)
+        try:
+            part = _get_futures_daily_ohlcv_single(
+                token, futures_code,
+                chunk_start.strftime("%Y%m%d"), chunk_end.strftime("%Y%m%d"),
+            )
+            if not part.empty:
+                all_dfs.append(part)
+        except Exception as e:
+            st.caption(f"⚠️ {chunk_start.strftime('%Y%m%d')}~{chunk_end.strftime('%Y%m%d')} 구간 조회 실패: {e}")
+        chunk_start = chunk_end + timedelta(days=1)
+
+    if not all_dfs:
+        return pd.DataFrame(columns=["일자", "종가", "시가", "고가", "저가", "거래량"])
+
+    combined = pd.concat(all_dfs, ignore_index=True)
+    combined = combined.drop_duplicates(subset="일자").sort_values("일자").reset_index(drop=True)
+    return combined
 
 
 # =========================================================
