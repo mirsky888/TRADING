@@ -33,51 +33,53 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def analyze_hourly_support_resistance(hourly_df: pd.DataFrame, current_price: float) -> list:
+def analyze_hourly_support_resistance(hourly_df: pd.DataFrame, current_price: float,
+                                       label: str = "60분봉", ma_period: int = 60,
+                                       time_col: str = None) -> list:
     """
-    60분봉 데이터로 MA60/MA120 기울기와 현재가 위치, 최근 접촉 횟수를 판단해
+    분봉 데이터로 MA(ma_period) 기울기와 현재가 위치, 최근 접촉 횟수를 판단해
     산강 매매법의 O자리(최초 접촉)/X자리(재접촉) 근사 판단을 만든다.
-    hourly_df: 시간순 정렬된 종가/고가/저가 컬럼 포함 DataFrame (60분봉)
+    label/ma_period를 바꿔가며 60분봉/15분봉/3분봉 등 어디에나 재사용 가능.
     """
     lines = []
-    if hourly_df is None or len(hourly_df) < 25:
-        lines.append("⚠️ 60분봉 데이터가 부족해 장기선 판단을 생략합니다 (최소 25개 필요)")
+    if hourly_df is None or len(hourly_df) < ma_period + 5:
+        lines.append(f"⚠️ {label} 데이터가 부족해 장기선 판단을 생략합니다 (최소 {ma_period + 5}개 필요)")
         return lines
 
-    df = hourly_df.sort_values(hourly_df.columns[0] if "시간" not in hourly_df.columns else "시간").copy()
-    df["MA20"] = df["종가"].rolling(20).mean()
-    df["MA60"] = df["종가"].rolling(min(60, len(df) - 1)).mean()
+    tcol = time_col or ("시간" if "시간" in hourly_df.columns else "일자")
+    df = hourly_df.sort_values(tcol).copy()
+    df[f"MA{ma_period}"] = df["종가"].rolling(ma_period).mean()
 
-    ma60_now = df["MA60"].iloc[-1]
-    ma60_prev = df["MA60"].iloc[-6] if len(df) > 6 and pd.notna(df["MA60"].iloc[-6]) else df["MA60"].iloc[0]
+    ma_now = df[f"MA{ma_period}"].iloc[-1]
+    ma_prev = df[f"MA{ma_period}"].iloc[-6] if len(df) > 6 and pd.notna(df[f"MA{ma_period}"].iloc[-6]) \
+        else df[f"MA{ma_period}"].dropna().iloc[0] if df[f"MA{ma_period}"].notna().any() else None
 
-    if pd.isna(ma60_now):
-        lines.append("⚠️ MA60 계산에 필요한 60분봉 데이터가 부족합니다")
+    if pd.isna(ma_now) or ma_prev is None:
+        lines.append(f"⚠️ MA{ma_period} 계산에 필요한 {label} 데이터가 부족합니다")
         return lines
 
-    slope = "상승" if ma60_now > ma60_prev else "하락" if ma60_now < ma60_prev else "횡보"
-    position = "위" if current_price > ma60_now else "아래"
+    slope = "상승" if ma_now > ma_prev else "하락" if ma_now < ma_prev else "횡보"
+    position = "위" if current_price > ma_now else "아래"
 
-    # 최근 20개 봉 동안 종가가 MA60을 교차(터치)한 횟수로 O/X 근사 판단
     recent = df.tail(20).copy()
-    recent["above"] = recent["종가"] > recent["MA60"]
+    recent["above"] = recent["종가"] > recent[f"MA{ma_period}"]
     touches = (recent["above"] != recent["above"].shift(1)).sum()
 
-    lines.append(f"**9. 장기선 분석 (60분봉 MA60 기준 — 실제 데이터 반영)**")
-    lines.append(f"- 60분봉 MA60: {ma60_now:,.2f} ({slope} 기울기), 현재가 이 선 {position}에 위치")
-    lines.append(f"- 최근 20개 60분봉 동안 MA60 교차(터치) 횟수: {touches}회")
+    lines.append(f"**{label} MA{ma_period} 기준**")
+    lines.append(f"- MA{ma_period}: {ma_now:,.2f} ({slope} 기울기), 현재가 이 선 {position}에 위치")
+    lines.append(f"- 최근 20개 봉 동안 MA{ma_period} 교차(터치) 횟수: {touches}회")
 
     if slope == "하락" and position == "아래":
-        lines.append("- → 내려오는 장기선 아래: 저항으로 작동 중 (산강 원칙상 콜 진입 비우호적)")
+        lines.append("- → 내려오는 선 아래: 저항으로 작동 중")
     elif slope == "상승" and position == "위":
-        lines.append("- → 올라가는 장기선 위: 지지로 작동 가능성")
+        lines.append("- → 올라가는 선 위: 지지로 작동 가능성")
     else:
-        lines.append("- → 장기선과 가격이 교차 구간에 있어 방향 확정 어려움, 추가 확인 필요")
+        lines.append("- → 선과 가격이 교차 구간, 방향 확정 어려움")
 
     if touches <= 1:
-        lines.append("- 접촉 횟수 적음 → O자리(최초 접촉) 가능성, 신뢰도 상대적으로 높음")
+        lines.append("- 접촉 횟수 적음 → O자리(최초 접촉) 가능성")
     else:
-        lines.append("- 접촉 횟수 많음 → X자리(재접촉) 가능성, 진입 신중 필요")
+        lines.append("- 접촉 횟수 많음 → X자리(재접촉) 가능성")
 
     return lines
 
@@ -453,6 +455,110 @@ def analyze_minute_abc(minute_df: pd.DataFrame, price: float, threshold_pct: flo
     return lines
 
 
+def split_session(minute_df: pd.DataFrame, time_col: str = "시간",
+                   morning_end: str = "113000", afternoon_start: str = "113000") -> tuple:
+    """
+    분봉 데이터를 오전/오후 세션으로 분리한다 (산강 매매법의 오전/오후 프라이스채널용).
+    기본 분리 기준: 11:30 (오전 09:00~11:30 / 오후 11:30~장마감)
+    time_col 값은 'HHMMSS' 형식 문자열이어야 한다.
+    """
+    if minute_df is None or minute_df.empty:
+        return None, None
+    morning = minute_df[minute_df[time_col] < morning_end]
+    afternoon = minute_df[minute_df[time_col] >= afternoon_start]
+    return morning, afternoon
+
+
+def compute_session_channels(minute_df: pd.DataFrame, time_col: str = "시간") -> dict:
+    """오전/오후 세션별 4등분 채널(고가·저가 기준)을 계산."""
+    morning, afternoon = split_session(minute_df, time_col=time_col)
+    result = {}
+    if morning is not None and not morning.empty:
+        result["오전"] = channel_levels(morning["고가"].max(), morning["저가"].min())
+    if afternoon is not None and not afternoon.empty:
+        result["오후"] = channel_levels(afternoon["고가"].max(), afternoon["저가"].min())
+    return result
+
+
+def find_wave_channel_intersections(pivots: pd.DataFrame, channels: dict,
+                                     tolerance_pct: float = 0.3) -> list:
+    """
+    파동 전환점(pivots)이 오전/오후 채널의 주요 레벨(0/25/50/75/100%)과
+    tolerance_pct 이내로 근접하면 '접점(지지/저항 후보)'으로 판정한다.
+    """
+    lines = []
+    if pivots is None or pivots.empty:
+        return lines
+    for session, ch in channels.items():
+        for level_name, level_val in ch.items():
+            for _, row in pivots.iterrows():
+                diff_pct = abs(row["가격"] - level_val) / level_val * 100 if level_val else 999
+                if diff_pct <= tolerance_pct:
+                    lines.append(
+                        f"- {session} 채널 {level_name}({level_val:,.2f}) ≈ "
+                        f"파동 {row['구분']} {row['가격']:,.2f}({row.iloc[0]}) → 접점(지지/저항 후보)"
+                    )
+    return lines
+
+
+def build_sangang_dashboard(price: float, df_3min: pd.DataFrame = None,
+                             df_15min: pd.DataFrame = None, df_60min: pd.DataFrame = None,
+                             wave_threshold_3m: float = 0.5, wave_threshold_15m: float = 1.0,
+                             intersection_tolerance: float = 0.3) -> str:
+    """
+    산강 매매기준 대시보드: 오전/오후 프라이스채널 + 파동 전환점과의 접점(지지/저항)
+    + 3분/15분/60분봉 MA60·MA120 지지저항을 한 화면에 종합.
+    """
+    lines = ["# 🎯 산강 매매기준 대시보드"]
+    lines.append(f"현재가: {price:,.2f}")
+    lines.append("")
+
+    # 1) 오전/오후 프라이스채널
+    lines.append("## 1. 오전/오후 프라이스채널")
+    for label, mdf, th in [("3분봉", df_3min, wave_threshold_3m), ("15분봉", df_15min, wave_threshold_15m)]:
+        if mdf is None or mdf.empty:
+            lines.append(f"**[{label}]** 데이터 없음")
+            continue
+        channels = compute_session_channels(mdf, time_col="시간")
+        lines.append(f"**[{label} 기준]**")
+        for session, ch in channels.items():
+            lines.append(f"- {session}: 0%={ch['0%']:,.2f} / 25%={ch['25%']:,.2f} / "
+                         f"50%={ch['50%']:,.2f} / 75%={ch['75%']:,.2f} / 100%={ch['100%']:,.2f}")
+        lines.append("")
+
+    # 2) 파동 전환점 - 채널 접점(지지/저항)
+    lines.append("## 2. 파동-채널 접점 (지지/저항 후보)")
+    found_any = False
+    for label, mdf, th in [("3분봉", df_3min, wave_threshold_3m), ("15분봉", df_15min, wave_threshold_15m)]:
+        if mdf is None or mdf.empty:
+            continue
+        pivots = find_zigzag_pivots(mdf, threshold_pct=th, time_col="시간")
+        channels = compute_session_channels(mdf, time_col="시간")
+        touches = find_wave_channel_intersections(pivots, channels, tolerance_pct=intersection_tolerance)
+        if touches:
+            lines.append(f"**[{label}]**")
+            lines.extend(touches)
+            found_any = True
+    if not found_any:
+        lines.append(f"- 허용오차 {intersection_tolerance}% 이내 접점 없음 (오차범위를 넓혀보세요)")
+    lines.append("")
+
+    # 3) 이평선(MA60/MA120) 지지저항 - 3분/15분/60분 전부
+    lines.append("## 3. 이동평균 지지저항 (MA60 / MA120)")
+    for label, mdf in [("3분봉", df_3min), ("15분봉", df_15min), ("60분봉", df_60min)]:
+        if mdf is None or mdf.empty:
+            continue
+        for period in [60, 120]:
+            ma_lines = analyze_hourly_support_resistance(
+                mdf, price, label=label, ma_period=period, time_col="시간"
+            )
+            lines.extend(ma_lines)
+        lines.append("")
+
+    lines.append("⚠️ 오전/오후 분리 기준은 11:30이며, 실제 산강 매매법의 세션 구분과 다를 수 있어 확인 후 조정 가능합니다.")
+    return "\n".join(lines)
+
+
 def calc_pivot_center(prev_high: float, prev_low: float, prev_close: float) -> dict:
     """
     산강 매매법에서 말하는 '그날의 중심가' 계산.
@@ -607,10 +713,11 @@ def generate_report(df: pd.DataFrame, stock_name: str = "", channel_window: int 
     lines.append("")
 
     # 9. 장기선 분석
+    lines.append("**9. 장기선 분석 (실제 60분봉 데이터 반영)**")
     if hourly_df is not None:
         lines.extend(analyze_hourly_support_resistance(hourly_df, price))
     else:
-        lines.append("**9. 장기선 분석 (MA120 기준 대체 — 60분봉 데이터 없음)**")
+        lines.append("**MA120 기준 대체 — 60분봉 데이터 없음**")
         if "MA120" in ma_vals:
             rel = "위" if price > ma_vals["MA120"] else "아래"
             lines.append(f"- MA120({ma_vals['MA120']:,.0f}) {rel}에 위치")
