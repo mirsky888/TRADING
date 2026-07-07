@@ -3,11 +3,6 @@
 통합매매법 v2-4 - KIS API 연동 Streamlit 대시보드
 =================================================
 로컬에 파이썬 설치 없이, Streamlit Cloud에 올려서 웹에서 바로 확인하는 버전입니다.
-
-배포 방법 요약 (README 참고):
-1. 이 파일 + requirements.txt를 GitHub 저장소에 업로드 (웹 브라우저에서 직접 업로드 가능, 설치 불필요)
-2. share.streamlit.io 접속 -> GitHub 계정 연동 -> 이 저장소 선택 -> Deploy
-3. 앱키/시크릿은 코드에 직접 쓰지 말고, Streamlit Cloud의 "Secrets" 메뉴에 등록해서 사용
 """
 
 import streamlit as st
@@ -18,12 +13,6 @@ from datetime import datetime, timedelta
 
 st.set_page_config(page_title="통합매매법 KIS 대시보드", layout="wide")
 
-# =========================================================
-# 0. 앱키/시크릿 - Streamlit Cloud의 Secrets에서 불러옵니다
-#    (Settings -> Secrets 에서 아래처럼 등록)
-#    APP_KEY = "..."
-#    APP_SECRET = "..."
-# =========================================================
 try:
     APP_KEY = st.secrets["APP_KEY"]
     APP_SECRET = st.secrets["APP_SECRET"]
@@ -41,10 +30,7 @@ URL_BASE = (
 )
 
 
-# =========================================================
-# 1. 인증
-# =========================================================
-@st.cache_data(ttl=60 * 60 * 12)  # 12시간 캐시 (토큰 재발급 최소화)
+@st.cache_data(ttl=60 * 60 * 12)
 def get_access_token(app_key, app_secret, url_base):
     headers = {"content-type": "application/json"}
     body = {"grant_type": "client_credentials", "appkey": app_key, "appsecret": app_secret}
@@ -63,9 +49,6 @@ def auth_headers(token, app_key, app_secret, tr_id):
     }
 
 
-# =========================================================
-# 2. 현재가 조회
-# =========================================================
 def get_current_price(token, stock_code):
     headers = auth_headers(token, APP_KEY, APP_SECRET, "FHKST01010100")
     params = {"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": stock_code}
@@ -77,9 +60,6 @@ def get_current_price(token, stock_code):
     return res.json()["output"]
 
 
-# =========================================================
-# 3. 일봉 조회
-# =========================================================
 def get_daily_ohlcv(token, stock_code, start_date, end_date):
     headers = auth_headers(token, APP_KEY, APP_SECRET, "FHKST03010100")
     params = {
@@ -91,11 +71,11 @@ def get_daily_ohlcv(token, stock_code, start_date, end_date):
         "FID_ORG_ADJ_PRC": "1",
     }
     res = requests.get(
-        f"{URL_BASE}/uapi/domestic-stock/v1/quotations/inquire-daily-price",
+        f"{URL_BASE}/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice",
         headers=headers, params=params,
     )
     res.raise_for_status()
-    rows = res.json()["output"]
+    rows = res.json()["output2"]
     df = pd.DataFrame(rows).rename(columns={
         "stck_bsop_date": "일자", "stck_oprc": "시가", "stck_hgpr": "고가",
         "stck_lwpr": "저가", "stck_clpr": "종가", "acml_vol": "거래량",
@@ -106,9 +86,6 @@ def get_daily_ohlcv(token, stock_code, start_date, end_date):
     return df.sort_values("일자").reset_index(drop=True)
 
 
-# =========================================================
-# 4. 통합매매법 지표 계산
-# =========================================================
 def add_indicators(df):
     df = df.copy()
     for p in [5, 10, 20, 60, 120]:
@@ -131,9 +108,6 @@ def channel_levels(high, low):
             "75%": low + rng * 0.75, "100%": high}
 
 
-# =========================================================
-# UI
-# =========================================================
 st.title("📊 통합매매법 v2-4 - KIS 실시간 대시보드")
 
 stock_code = st.text_input("종목코드 입력 (예: 005930 삼성전자, 000810 삼성화재)", value="005930")
