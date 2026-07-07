@@ -118,11 +118,10 @@ def get_futures_daily_ohlcv(token, futures_code, start_date, end_date):
     headers = auth_headers(token, APP_KEY, APP_SECRET, "FHKIF03020100")
     params = {
         "FID_COND_MRKT_DIV_CODE": "F",
-        "FID_INPUT_ISCD": futures_code,
+        "FID_INPUT_ISCD": futures_code.strip(),
         "FID_INPUT_DATE_1": start_date,
         "FID_INPUT_DATE_2": end_date,
         "FID_PERIOD_DIV_CODE": "D",
-        "FID_ORG_ADJ_PRC": "1",  # 국내주식 API처럼 수정주가 여부 파라미터를 추가 요구할 수 있어 포함
     }
     res = requests.get(
         f"{URL_BASE}/uapi/domestic-futureoption/v1/quotations/inquire-daily-fuopchartprice",
@@ -179,7 +178,7 @@ st.title("📊 통합매매법 v2-4 - KIS 실시간 대시보드")
 asset_type = st.radio("종목 유형", ["주식", "국내선물(KOSPI200 등)"], horizontal=True)
 
 if asset_type == "주식":
-    stock_code = st.text_input("종목코드 입력 (예: 005930 삼성전자, 000810 삼성화재)", value="005930")
+    stock_code = st.text_input("종목코드 입력 (예: 005930 삼성전자, 000810 삼성화재)", value="005930").strip()
 else:
     stock_code = st.text_input(
         "선물 종목코드 입력 (예: 101S06 형식 - 정확한 코드는 KIS 종목정보파일/HTS에서 확인 필요)",
@@ -187,7 +186,7 @@ else:
         help="선물 종목코드는 만기월마다 바뀝니다. HTS에 표시되는 코드(F202609 등)와 "
              "KIS API가 요구하는 코드 형식이 다를 수 있어, 오류가 나면 KIS Developers "
              "포털의 '종목정보파일' 메뉴에서 정확한 코드를 확인해 입력해주세요.",
-    )
+    ).strip()
 
 days = st.slider("조회 기간 (일)", 30, 180, 60)
 
@@ -216,7 +215,7 @@ if st.button("조회 시작") and APP_KEY and APP_SECRET and stock_code:
             debug_headers = auth_headers(token, APP_KEY, APP_SECRET, "FHKIF03020100")
             debug_params = {
                 "FID_COND_MRKT_DIV_CODE": "F",
-                "FID_INPUT_ISCD": stock_code,
+                "FID_INPUT_ISCD": stock_code.strip(),
                 "FID_INPUT_DATE_1": start,
                 "FID_INPUT_DATE_2": end,
                 "FID_PERIOD_DIV_CODE": "D",
