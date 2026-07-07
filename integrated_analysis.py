@@ -250,6 +250,91 @@ def describe_wave_sequence(pivots: pd.DataFrame, price: float, max_waves: int = 
     return lines
 
 
+def analyze_minute_abc(minute_df: pd.DataFrame, price: float, threshold_pct: float = 0.5,
+                        time_col: str = "시간") -> list:
+    """
+    분봉 데이터(minute_df)로 지그재그 전환점을 잡고, 그중 가장 큰 폭의 연속 구간을
+    A파로, 그 다음 반대방향 전환점을 B파로 삼아 통합매매법 11~15번 항목 형식으로
+    실제 숫자를 산출한다.
+    """
+    lines = []
+    pivots = find_zigzag_pivots(minute_df, threshold_pct=threshold_pct, time_col=time_col)
+    if len(pivots) < 2:
+        lines.append("⚠️ 분봉 전환점이 2개 미만이라 A-B-C 산출이 어렵습니다. 민감도(%)를 낮춰보세요.")
+        return lines
+
+    # 연속된 전환점 쌍 중 가장 폭이 큰 구간을 A파로 채택
+    pivots = pivots.reset_index(drop=True)
+    best_i, best_move = 0, 0
+    for i in range(len(pivots) - 1):
+        move = abs(pivots.loc[i + 1, "가격"] - pivots.loc[i, "가격"])
+        if move > best_move:
+            best_move = move
+            best_i = i
+
+    a_start_row = pivots.loc[best_i]
+    a_end_row = pivots.loc[best_i + 1]
+    a_start_val, a_end_val = a_start_row["가격"], a_end_row["가격"]
+    a_start_t, a_end_t = a_start_row[time_col], a_end_row[time_col]
+    a_direction = "하락(고점→저점)" if a_start_val > a_end_val else "상승(저점→고점)"
+    a_move = abs(a_start_val - a_end_val)
+
+    # A파 이후 전환점을 B파 후보로
+    b_row = pivots.loc[best_i + 2] if best_i + 2 < len(pivots) else None
+
+    lines.append(f"**분봉 기준 A-B-C 파동 산출 (민감도 {threshold_pct}%, {a_start_t}~{a_end_t})**")
+    lines.append(f"- A파: {a_start_val:,.2f}({a_start_t}) → {a_end_val:,.2f}({a_end_t}), {a_direction}")
+
+    if b_row is not None:
+        b_val, b_t = b_row["가격"], b_row[time_col]
+        if a_direction.startswith("하락"):
+            b_retrace = (b_val - a_end_val) / a_move * 100
+        else:
+            b_retrace = (a_end_val - b_val) / a_move * 100
+        lines.append(f"- B파: {b_val:,.2f}({b_t}), A파의 {b_retrace:.1f}% 되돌림")
+
+        c_progress = abs(price - b_val) / a_move * 100 if a_move else 0
+        if a_direction.startswith("하락"):
+            c_target = b_val - a_move * 0.62
+        else:
+            c_target = b_val + a_move * 0.62
+        lines.append(f"- C파 진행률: 약 {c_progress:.0f}%(A파 대비), C파 목표(근사): {c_target:,.2f}")
+
+        if 38 <= b_retrace <= 61.8:
+            lines.append("- B파 되돌림 38~61.8% 밴드 안 — 전형적 조정 패턴")
+    else:
+        b_val, c_target = None, None
+        lines.append("- 아직 B파 전환점이 형성되지 않음 (A파 진행 중이거나 데이터 부족)")
+
+    # 채널(분봉 A-B 구간 기준)
+    hi = max(a_start_val, a_end_val, b_val if b_val else a_end_val)
+    lo = min(a_start_val, a_end_val, b_val if b_val else a_end_val)
+    ch = channel_levels(hi, lo)
+
+    lines.append("")
+    lines.append("**12. 매수/매도(콜/풋) 진입 자리 (분봉 기준)**")
+    lines.append(f"- 매수 관심: 채널 25%({ch['25%']:,.2f}) 지지 확인 시")
+    lines.append(f"- 매도 관심: 채널 75%({ch['75%']:,.2f}) 저항 확인 시")
+
+    lines.append("")
+    lines.append("**13. 손절 · 목표가 (분봉 기준)**")
+    lines.append(f"- 상단 목표: {ch['100%']:,.2f} / 하단 목표: {ch['0%']:,.2f}")
+    if c_target:
+        lines.append(f"- C파 최종 목표: {c_target:,.2f}")
+    lines.append(f"- 손절 기준(롱): {ch['0%']:,.2f} 이탈 시 / (숏): {ch['100%']:,.2f} 돌파 시")
+
+    lines.append("")
+    lines.append("**14. 재매집(눌림목) 구간 (분봉 기준)**")
+    lines.append(f"- 채널 25~50%({ch['25%']:,.2f}~{ch['50%']:,.2f}) 구간이 재매집 후보")
+
+    lines.append("")
+    lines.append("**15. 합성 전략 (분봉 기준)**")
+    lines.append(f"- {ch['0%']:,.2f} 붕괴 시 풋 강화 / {ch['100%']:,.2f} 돌파 시 콜 강화 전략 권장")
+    lines.append("- 박스권 내에서는 관망 또는 소폭 대응 원칙")
+
+    return lines
+
+
 def find_recent_swing(df: pd.DataFrame, lookback: int = 20):
     """
     최근 lookback 기간 내 최고/최저와 그 날짜를 찾아 A파 후보로 사용.
