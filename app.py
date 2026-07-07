@@ -260,17 +260,20 @@ else:
     ).strip()
 
 days = st.slider("조회 기간 (일)", 30, 180, 60)
+zigzag_pct = st.slider("파동 민감도 (%) - 낮을수록 촘촘한 소파동까지 탐지", 1.0, 10.0, 3.0, 0.5)
 
 if st.button("조회 시작") and APP_KEY and APP_SECRET and stock_code:
     st.session_state["조회완료"] = True
     st.session_state["조회종목"] = stock_code
     st.session_state["조회기간"] = days
     st.session_state["조회유형"] = asset_type
+    st.session_state["파동민감도"] = zigzag_pct
 
 if st.session_state.get("조회완료") and APP_KEY and APP_SECRET:
     stock_code = st.session_state["조회종목"]
     days = st.session_state["조회기간"]
     asset_type = st.session_state["조회유형"]
+    zigzag_pct = st.session_state.get("파동민감도", 3.0)
     try:
         token = get_access_token(APP_KEY, APP_SECRET, URL_BASE)
 
@@ -410,7 +413,7 @@ if st.session_state.get("조회완료") and APP_KEY and APP_SECRET:
 
         st.subheader("6. 통합매매법 15항목 자동 분석 (규칙 기반)")
         report_md = generate_report(df, stock_name=stock_code, related_dfs=related_dfs,
-                                     hourly_df=hourly_df)
+                                     hourly_df=hourly_df, zigzag_threshold=zigzag_pct)
         st.markdown(report_md)
 
     except Exception as e:
