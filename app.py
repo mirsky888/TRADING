@@ -18,6 +18,7 @@ from datetime import datetime, timedelta
 from integrated_analysis import (
     generate_report, find_zigzag_pivots, describe_wave_sequence,
     analyze_minute_abc, calc_pivot_center, analyze_sangang_baseline,
+    build_sangang_dashboard,
 )
 
 st.set_page_config(page_title="통합매매법 KIS 대시보드", layout="wide")
@@ -328,6 +329,47 @@ if st.session_state.get("조회완료") and APP_KEY and APP_SECRET:
             hourly_df = None
             df_3min, df_15min = None, None
         else:
+            # --- 최상단: 산강 매매기준 대시보드용 3분/15분/60분봉 우선 조회 ---
+            hourly_df, df_3min, df_15min = None, None, None
+            try:
+                hourly_raw = get_futures_minute_ohlcv(token, stock_code, "60")
+                hourly_df = parse_futures_minute_ohlcv(hourly_raw)
+                if hourly_df.empty:
+                    hourly_df = None
+            except Exception:
+                st.caption("⚠️ 60분봉 자동 조회 실패")
+            try:
+                raw_3 = get_futures_minute_ohlcv(token, stock_code, "3")
+                df_3min = parse_futures_minute_ohlcv(raw_3)
+                if df_3min.empty:
+                    df_3min = None
+            except Exception:
+                st.caption("⚠️ 3분봉 자동 조회 실패")
+            try:
+                raw_15 = get_futures_minute_ohlcv(token, stock_code, "15")
+                df_15min = parse_futures_minute_ohlcv(raw_15)
+                if df_15min.empty:
+                    df_15min = None
+            except Exception:
+                st.caption("⚠️ 15분봉 자동 조회 실패")
+
+            dash_price = None
+            if df_3min is not None and not df_3min.empty:
+                dash_price = df_3min["종가"].iloc[-1]
+            elif df_15min is not None and not df_15min.empty:
+                dash_price = df_15min["종가"].iloc[-1]
+            elif hourly_df is not None and not hourly_df.empty:
+                dash_price = hourly_df["종가"].iloc[-1]
+
+            if dash_price is not None:
+                dashboard_md = build_sangang_dashboard(
+                    dash_price, df_3min=df_3min, df_15min=df_15min, df_60min=hourly_df,
+                )
+                st.markdown(dashboard_md)
+                st.markdown("---")
+            else:
+                st.caption("⚠️ 분봉 데이터를 하나도 가져오지 못해 산강 대시보드를 표시할 수 없습니다")
+
             st.subheader("1~2. 선물 일봉 데이터")
 
             # --- 디버그: API 원본 응답 확인용 (문제 해결 후 지워도 됩니다) ---
@@ -360,33 +402,7 @@ if st.session_state.get("조회완료") and APP_KEY and APP_SECRET:
                 related_dfs["삼성전자"] = get_daily_ohlcv(token, "005930", start, end)
             except Exception:
                 st.caption("⚠️ 관련종목(SK하이닉스/삼성전자) 조회 실패 - 세력방향 분석에서 제외됩니다")
-
-            # 15항목 리포트 9번(장기선) 항목용 60분봉 자동 조회
-            hourly_df = None
-            try:
-                hourly_raw = get_futures_minute_ohlcv(token, stock_code, "60")
-                hourly_df = parse_futures_minute_ohlcv(hourly_raw)
-                if hourly_df.empty:
-                    hourly_df = None
-            except Exception:
-                st.caption("⚠️ 60분봉 자동 조회 실패 - 9번(장기선) 항목은 일봉 기준으로 대체됩니다")
-
-            # 산강 매매기준선용 3분봉/15분봉 자동 조회
-            df_3min, df_15min = None, None
-            try:
-                raw_3 = get_futures_minute_ohlcv(token, stock_code, "3")
-                df_3min = parse_futures_minute_ohlcv(raw_3)
-                if df_3min.empty:
-                    df_3min = None
-            except Exception:
-                st.caption("⚠️ 3분봉 자동 조회 실패 - 매매기준선에서 제외됩니다")
-            try:
-                raw_15 = get_futures_minute_ohlcv(token, stock_code, "15")
-                df_15min = parse_futures_minute_ohlcv(raw_15)
-                if df_15min.empty:
-                    df_15min = None
-            except Exception:
-                st.caption("⚠️ 15분봉 자동 조회 실패 - 매매기준선에서 제외됩니다")
+            # (60분/3분/15분봉은 최상단 대시보드 단계에서 이미 조회했으므로 재사용)
 
             # --- 분봉 조회 및 표시 ---
             with st.expander("📈 분봉 데이터 (3분/15분/60분)", expanded=True):
