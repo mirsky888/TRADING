@@ -315,6 +315,21 @@ def format_bangjang_block(label: str, phase: dict) -> list:
     return lines
 
 
+def compute_abc_phase_auto(df: pd.DataFrame, price: float, start_threshold: float,
+                            time_col: str = "일자", min_threshold: float = 0.05) -> dict:
+    """
+    compute_abc_phase()를 실행하되, 전환점이 부족하면 민감도(threshold_pct)를
+    절반씩 낮춰가며 min_threshold까지 자동 재시도한다.
+    """
+    th = start_threshold
+    result = compute_abc_phase(df, price, th, time_col=time_col)
+    while not result.get("ok") and th > min_threshold:
+        th = th / 2
+        result = compute_abc_phase(df, price, th, time_col=time_col)
+    result["used_threshold"] = th
+    return result
+
+
 def analyze_sangang_baseline(price: float,
                               daily_df: pd.DataFrame,
                               minute_dfs: dict,
@@ -323,12 +338,15 @@ def analyze_sangang_baseline(price: float,
     산강 매매기준선: 일봉 + 여러 분봉(3분/15분/60분 등)을 같은 방식(지그재그 A-B-C)으로
     각각 독립 계산해서 한 번에 비교할 수 있는 통합 리포트를 만든다.
     minute_dfs: {"3분봉": (df, threshold_pct), "15분봉": (df, threshold_pct), ...}
+    전환점이 부족하면 민감도를 자동으로 낮춰가며 재시도한다.
     """
     lines = ["## 📍 산강 매매기준선 (멀티 타임프레임 A-B-C 국면)"]
     lines.append("")
 
-    daily_phase = compute_abc_phase(daily_df, price, daily_threshold, time_col="일자")
-    lines.extend(format_bangjang_block(f"일봉 기준 (민감도 {daily_threshold}%)", daily_phase))
+    daily_phase = compute_abc_phase_auto(daily_df, price, daily_threshold, time_col="일자")
+    used_th = daily_phase.get("used_threshold", daily_threshold)
+    lines.extend(format_bangjang_block(f"일봉 기준 (민감도 {used_th}%, 자동조정됨)" if used_th != daily_threshold
+                                        else f"일봉 기준 (민감도 {daily_threshold}%)", daily_phase))
     lines.append("")
 
     for label, (mdf, th) in minute_dfs.items():
@@ -338,11 +356,15 @@ def analyze_sangang_baseline(price: float,
             lines.append("")
             continue
         m_price = mdf["종가"].iloc[-1]
-        m_phase = compute_abc_phase(mdf, m_price, th, time_col="시간")
-        lines.extend(format_bangjang_block(f"{label} 기준 (민감도 {th}%, 현재가 {m_price:,.2f})", m_phase))
+        m_phase = compute_abc_phase_auto(mdf, m_price, th, time_col="시간")
+        used_m_th = m_phase.get("used_threshold", th)
+        label_txt = (f"{label} 기준 (민감도 {used_m_th:.2f}%, 자동조정됨, 현재가 {m_price:,.2f})"
+                     if used_m_th != th else f"{label} 기준 (민감도 {th}%, 현재가 {m_price:,.2f})")
+        lines.extend(format_bangjang_block(label_txt, m_phase))
         lines.append("")
 
     lines.append("⚠️ 타임프레임별로 A파를 각자 독립 산출하므로 값이 서로 다르게 나오는 것이 정상입니다.")
+    lines.append("⚠️ 전환점이 부족한 경우 민감도를 자동으로 낮춰 재계산했습니다 (최소 0.05%까지).")
     return "\n".join(lines)
 
 
