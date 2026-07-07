@@ -175,6 +175,77 @@ def analyze_bangjang_pattern(df: pd.DataFrame, a_start_val: float, a_end_val: fl
     return lines
 
 
+def find_zigzag_pivots(df: pd.DataFrame, threshold_pct: float = 3.0) -> pd.DataFrame:
+    """
+    가격이 threshold_pct(%) 이상 방향을 바꿀 때마다 전환점(고점/저점)을 기록해
+    큰 구간 하나가 아니라 여러 개의 작은 스윙(1-2-3-4-5 흐름)을 잡아낸다.
+    threshold_pct를 낮출수록 더 촘촘하게(민감하게) 잡히고, 높일수록 큰 흐름만 남는다.
+    반환: 일자/가격/구분(고점·저점) 컬럼을 가진 DataFrame, 시간순 정렬.
+    """
+    d = df.sort_values("일자").reset_index(drop=True)
+    if len(d) < 3:
+        return pd.DataFrame(columns=["일자", "가격", "구분"])
+
+    pivots = []
+    # 첫 기준점
+    last_pivot_idx = 0
+    last_pivot_price = d.loc[0, "종가"]
+    direction = None  # "up" or "down"
+
+    for i in range(1, len(d)):
+        price = d.loc[i, "종가"]
+        change_pct = (price - last_pivot_price) / last_pivot_price * 100
+
+        if direction is None:
+            if abs(change_pct) >= threshold_pct:
+                direction = "up" if change_pct > 0 else "down"
+                last_pivot_idx = i
+                last_pivot_price = price
+        elif direction == "up":
+            if price > last_pivot_price:
+                last_pivot_idx = i
+                last_pivot_price = price
+            elif (last_pivot_price - price) / last_pivot_price * 100 >= threshold_pct:
+                pivots.append((d.loc[last_pivot_idx, "일자"], last_pivot_price, "고점"))
+                direction = "down"
+                last_pivot_idx = i
+                last_pivot_price = price
+        elif direction == "down":
+            if price < last_pivot_price:
+                last_pivot_idx = i
+                last_pivot_price = price
+            elif (price - last_pivot_price) / last_pivot_price * 100 >= threshold_pct:
+                pivots.append((d.loc[last_pivot_idx, "일자"], last_pivot_price, "저점"))
+                direction = "up"
+                last_pivot_idx = i
+                last_pivot_price = price
+
+    # 마지막 진행 중인 전환점도 포함
+    last_label = "고점" if direction == "up" else "저점" if direction == "down" else None
+    if last_label:
+        pivots.append((d.loc[last_pivot_idx, "일자"], last_pivot_price, last_label))
+
+    return pd.DataFrame(pivots, columns=["일자", "가격", "구분"])
+
+
+def describe_wave_sequence(pivots: pd.DataFrame, price: float, max_waves: int = 6) -> list:
+    """최근 스윙포인트들을 1-2-3-4-5 / A-B-C 스타일로 순서대로 나열해 설명."""
+    lines = []
+    if pivots.empty or len(pivots) < 2:
+        lines.append("- 설정한 민감도 기준으로는 뚜렷한 소파동 전환점이 아직 부족합니다")
+        return lines
+
+    recent = pivots.tail(max_waves).reset_index(drop=True)
+    lines.append(f"- 최근 전환점 {len(recent)}개 (촘촘한 파동 구조):")
+    for i, row in recent.iterrows():
+        lines.append(f"  {i+1}. {row['구분']} {row['가격']:,.0f} ({row['일자'].date()})")
+
+    last = recent.iloc[-1]
+    move_from_last = (price - last["가격"]) / last["가격"] * 100
+    lines.append(f"- 마지막 전환점({last['구분']} {last['가격']:,.0f}) 대비 현재가 {move_from_last:+.1f}%")
+    return lines
+
+
 def find_recent_swing(df: pd.DataFrame, lookback: int = 20):
     """
     최근 lookback 기간 내 최고/최저와 그 날짜를 찾아 A파 후보로 사용.
@@ -189,7 +260,7 @@ def find_recent_swing(df: pd.DataFrame, lookback: int = 20):
 
 def generate_report(df: pd.DataFrame, stock_name: str = "", channel_window: int = 20,
                      swing_lookback: int = 20, related_dfs: dict = None,
-                     hourly_df: pd.DataFrame = None) -> str:
+                     hourly_df: pd.DataFrame = None, zigzag_threshold: float = 3.0) -> str:
     """
     df: 일자/종가/시가/고가/저가/거래량 컬럼을 가진 DataFrame (일자 오름차순 권장)
     반환: 마크다운 텍스트 (Streamlit st.markdown()으로 바로 출력 가능)
@@ -293,10 +364,13 @@ def generate_report(df: pd.DataFrame, stock_name: str = "", channel_window: int 
 
     # 7. 파동 위치 (근사치 - 참고용)
     lines.append("**7. 파동 위치 (엘리엇 + ABC, 규칙 기반 근사치 — 참고용)**")
-    lines.append(f"- 추정 A파: {a_start_val:,.0f}({a_start_date.date()}) → "
+    lines.append(f"- 추정 A파(큰 그림, {swing_lookback}거래일 기준): {a_start_val:,.0f}({a_start_date.date()}) → "
                  f"{a_end_val:,.0f}({a_end_date.date()}), {a_direction}")
     lines.append(f"- 현재가는 A파의 {retrace_pct:.1f}% 되돌림 수준")
-    lines.append(f"- (탐색 구간: 최근 {swing_lookback}거래일 — 채널 계산과 동일 구간)")
+    lines.append("")
+    lines.append(f"**7-1. 촘촘한 파동 구조 (민감도 {zigzag_threshold}% 기준 — 더 좁은 범주)**")
+    pivots = find_zigzag_pivots(df, threshold_pct=zigzag_threshold)
+    lines.extend(describe_wave_sequence(pivots, price))
     lines.append("⚠️ 이 항목은 정성적 판단이 필요한 영역이라 자동 계산은 참고용입니다")
     lines.append("")
 
