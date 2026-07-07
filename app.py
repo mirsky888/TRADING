@@ -15,7 +15,10 @@ import requests
 import json
 import pandas as pd
 from datetime import datetime, timedelta
-from integrated_analysis import generate_report, find_zigzag_pivots, describe_wave_sequence, analyze_minute_abc, calc_pivot_center
+from integrated_analysis import (
+    generate_report, find_zigzag_pivots, describe_wave_sequence,
+    analyze_minute_abc, calc_pivot_center, analyze_sangang_baseline,
+)
 
 st.set_page_config(page_title="통합매매법 KIS 대시보드", layout="wide")
 
@@ -323,6 +326,7 @@ if st.session_state.get("조회완료") and APP_KEY and APP_SECRET:
             df = get_daily_ohlcv(token, stock_code, start, end)
             related_dfs = {}
             hourly_df = None
+            df_3min, df_15min = None, None
         else:
             st.subheader("1~2. 선물 일봉 데이터")
 
@@ -366,6 +370,23 @@ if st.session_state.get("조회완료") and APP_KEY and APP_SECRET:
                     hourly_df = None
             except Exception:
                 st.caption("⚠️ 60분봉 자동 조회 실패 - 9번(장기선) 항목은 일봉 기준으로 대체됩니다")
+
+            # 산강 매매기준선용 3분봉/15분봉 자동 조회
+            df_3min, df_15min = None, None
+            try:
+                raw_3 = get_futures_minute_ohlcv(token, stock_code, "3")
+                df_3min = parse_futures_minute_ohlcv(raw_3)
+                if df_3min.empty:
+                    df_3min = None
+            except Exception:
+                st.caption("⚠️ 3분봉 자동 조회 실패 - 매매기준선에서 제외됩니다")
+            try:
+                raw_15 = get_futures_minute_ohlcv(token, stock_code, "15")
+                df_15min = parse_futures_minute_ohlcv(raw_15)
+                if df_15min.empty:
+                    df_15min = None
+            except Exception:
+                st.caption("⚠️ 15분봉 자동 조회 실패 - 매매기준선에서 제외됩니다")
 
             # --- 분봉 조회 및 표시 ---
             with st.expander("📈 분봉 데이터 (3분/15분/60분)", expanded=True):
@@ -475,6 +496,18 @@ if st.session_state.get("조회완료") and APP_KEY and APP_SECRET:
         report_md = generate_report(df, stock_name=stock_code, related_dfs=related_dfs,
                                      hourly_df=hourly_df, zigzag_threshold=zigzag_pct)
         st.markdown(report_md)
+
+        if asset_type != "주식" and (df_3min is not None or df_15min is not None):
+            st.subheader("7. 산강 매매기준선 (일봉/3분봉/15분봉 A-B-C 비교)")
+            minute_dfs_for_baseline = {}
+            if df_3min is not None:
+                minute_dfs_for_baseline["3분봉"] = (df_3min, 0.5)
+            if df_15min is not None:
+                minute_dfs_for_baseline["15분봉"] = (df_15min, 1.0)
+            baseline_md = analyze_sangang_baseline(
+                df["종가"].iloc[-1], df, minute_dfs_for_baseline, daily_threshold=zigzag_pct,
+            )
+            st.markdown(baseline_md)
 
     except Exception as e:
         st.error(f"오류 발생: {e}")
