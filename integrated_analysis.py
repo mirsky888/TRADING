@@ -335,6 +335,26 @@ def analyze_minute_abc(minute_df: pd.DataFrame, price: float, threshold_pct: flo
     return lines
 
 
+def calc_pivot_center(prev_high: float, prev_low: float, prev_close: float) -> dict:
+    """
+    산강 매매법에서 말하는 '그날의 중심가' 계산.
+    전일 고가/저가/종가로 피봇포인트(중심가) 및 1차 지지/저항선을 산출한다.
+    중심가 = (전일고가 + 전일저가 + 전일종가) / 3
+    """
+    pivot = (prev_high + prev_low + prev_close) / 3
+    r1 = 2 * pivot - prev_low
+    s1 = 2 * pivot - prev_high
+    r2 = pivot + (prev_high - prev_low)
+    s2 = pivot - (prev_high - prev_low)
+    return {
+        "중심가": pivot,
+        "1차저항(R1)": r1,
+        "1차지지(S1)": s1,
+        "2차저항(R2)": r2,
+        "2차지지(S2)": s2,
+    }
+
+
 def find_recent_swing(df: pd.DataFrame, lookback: int = 20):
     """
     최근 lookback 기간 내 최고/최저와 그 날짜를 찾아 A파 후보로 사용.
