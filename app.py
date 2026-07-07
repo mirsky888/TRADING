@@ -211,6 +211,15 @@ else:
 days = st.slider("조회 기간 (일)", 30, 180, 60)
 
 if st.button("조회 시작") and APP_KEY and APP_SECRET and stock_code:
+    st.session_state["조회완료"] = True
+    st.session_state["조회종목"] = stock_code
+    st.session_state["조회기간"] = days
+    st.session_state["조회유형"] = asset_type
+
+if st.session_state.get("조회완료") and APP_KEY and APP_SECRET:
+    stock_code = st.session_state["조회종목"]
+    days = st.session_state["조회기간"]
+    asset_type = st.session_state["조회유형"]
     try:
         token = get_access_token(APP_KEY, APP_SECRET, URL_BASE)
 
