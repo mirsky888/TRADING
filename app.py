@@ -15,7 +15,7 @@ import requests
 import json
 import pandas as pd
 from datetime import datetime, timedelta
-from integrated_analysis import generate_report, find_zigzag_pivots, describe_wave_sequence, analyze_minute_abc
+from integrated_analysis import generate_report, find_zigzag_pivots, describe_wave_sequence, analyze_minute_abc, calc_pivot_center
 
 st.set_page_config(page_title="통합매매법 KIS 대시보드", layout="wide")
 
@@ -340,10 +340,6 @@ if st.session_state.get("조회완료") and APP_KEY and APP_SECRET:
             with st.expander("📈 분봉 데이터 (3분/15분/60분)", expanded=True):
                 minute_unit = st.selectbox("분봉 단위", ["60", "15", "3"], index=0,
                                             key="minute_unit_select")
-                minute_zigzag_pct = st.slider(
-                    "분봉 파동 민감도 (%) - 3분/15분봉은 일봉보다 훨씬 작게 설정 권장",
-                    0.1, 3.0, 0.5, 0.1, key="minute_zigzag_slider"
-                )
                 if st.button("분봉 조회", key="minute_query_btn"):
                     raw = get_futures_minute_ohlcv(token, stock_code, minute_unit)
                     minute_df = parse_futures_minute_ohlcv(raw)
@@ -361,32 +357,45 @@ if st.session_state.get("조회완료") and APP_KEY and APP_SECRET:
                         st.dataframe(minute_df.tail(30), use_container_width=True)
 
                         idx_col = "시간" if "시간" in minute_df.columns else minute_df.index
-                        try:
-                            minute_df = add_indicators(minute_df)
-                            st.line_chart(minute_df.set_index(idx_col)[
-                                [c for c in ["종가", "MA5", "MA20", "MA60"] if c in minute_df.columns]
-                            ])
-                            if "Sto_%K" in minute_df.columns:
-                                st.line_chart(minute_df.set_index(idx_col)[["Sto_%K", "Sto_%D"]])
-                        except Exception as e:
-                            st.caption(f"⚠️ 지표 계산 생략 (필요 컬럼 부족): {e}")
-                            st.line_chart(minute_df.set_index(idx_col)[["종가"]])
+                        st.line_chart(minute_df.set_index(idx_col)[["종가"]])
 
-                        # 분봉 기준 촘촘한 파동 구조
-                        st.markdown(f"**{minute_unit}분봉 기준 파동 구조 (민감도 {minute_zigzag_pct}%)**")
                         latest_price = minute_df["종가"].iloc[-1]
-                        m_pivots = find_zigzag_pivots(minute_df, threshold_pct=minute_zigzag_pct, time_col="시간")
-                        wave_lines = describe_wave_sequence(
-                            m_pivots, latest_price, max_waves=8, time_col="시간", show_date_only=False
-                        )
-                        for line in wave_lines:
-                            st.write(line)
 
-                        st.markdown("---")
-                        abc_lines = analyze_minute_abc(
-                            minute_df, latest_price, threshold_pct=minute_zigzag_pct, time_col="시간"
-                        )
-                        st.markdown("\n".join(abc_lines))
+                        # --- 산강 중심가(피봇포인트) - 전일 고가/저가/종가 기준 ---
+                        st.markdown("### 📍 산강 중심가 (전일 고저종 기준 피봇포인트)")
+                        output1 = raw.get("output1", {})
+                        try:
+                            prev_high = float(output1["futs_prdy_hgpr"])
+                            prev_low = float(output1["futs_prdy_lwpr"])
+                            prev_close = float(output1["futs_prdy_clpr"])
+                            pivot = calc_pivot_center(prev_high, prev_low, prev_close)
+                            pc1, pc2, pc3, pc4, pc5 = st.columns(5)
+                            pc1.metric("2차지지(S2)", f"{pivot['2차지지(S2)']:,.2f}")
+                            pc2.metric("1차지지(S1)", f"{pivot['1차지지(S1)']:,.2f}")
+                            pc3.metric("중심가", f"{pivot['중심가']:,.2f}")
+                            pc4.metric("1차저항(R1)", f"{pivot['1차저항(R1)']:,.2f}")
+                            pc5.metric("2차저항(R2)", f"{pivot['2차저항(R2)']:,.2f}")
+                            pos = "중심가 위" if latest_price > pivot["중심가"] else "중심가 아래"
+                            st.caption(f"현재가 {latest_price:,.2f} → {pos} (전일 고 {prev_high:,.2f} / 저 {prev_low:,.2f} / 종 {prev_close:,.2f} 기준)")
+                        except (KeyError, ValueError):
+                            st.caption("⚠️ 전일 고가/저가/종가 필드를 찾지 못해 중심가를 계산하지 못했습니다")
+
+                        # --- 분봉 파동 구조: 민감도 0.5% / 3% 두 기준 비교 ---
+                        st.markdown("### 🌊 분봉 파동 구조 (민감도 2단계 비교)")
+                        for th in [0.5, 3.0]:
+                            st.markdown(f"**민감도 {th}% 기준**")
+                            m_pivots = find_zigzag_pivots(minute_df, threshold_pct=th, time_col="시간")
+                            wave_lines = describe_wave_sequence(
+                                m_pivots, latest_price, max_waves=8, time_col="시간", show_date_only=False
+                            )
+                            for line in wave_lines:
+                                st.write(line)
+
+                            abc_lines = analyze_minute_abc(
+                                minute_df, latest_price, threshold_pct=th, time_col="시간"
+                            )
+                            st.markdown("\n".join(abc_lines))
+                            st.markdown("---")
             # --- 분봉 끝 ---
 
             # --- 4단계: 옵션 프리미엄 디버그 (종목코드 확인 후 테스트) ---
