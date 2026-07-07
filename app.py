@@ -114,6 +114,24 @@ def get_daily_ohlcv(token, stock_code, start_date, end_date):
 #     작성했습니다. 실행 시 오류가 나면 이 문서를 열어 정확한 값으로
 #     맞춰주셔야 할 수 있습니다 (특히 FID_COND_MRKT_DIV_CODE 값).
 # =========================================================
+# =========================================================
+# 3-3. 국내옵션(콜/풋) 현재가 조회 - 종목코드 확인 후 테스트
+#   ※ 선물 현재가 조회와 동일한 API 구조로 추정(FID_COND_MRKT_DIV_CODE만 "O")
+#     실제 종목코드·파라미터는 디버그로 확인 후 확정 예정
+# =========================================================
+def get_option_price(token, option_code):
+    headers = auth_headers(token, APP_KEY, APP_SECRET, "FHMIF10000000")
+    params = {
+        "fid_cond_mrkt_div_code": "O",
+        "fid_input_iscd": option_code.strip(),
+    }
+    res = requests.get(
+        f"{URL_BASE}/uapi/domestic-futureoption/v1/quotations/inquire-price",
+        headers=headers, params=params,
+    )
+    return res
+
+
 def get_futures_daily_ohlcv(token, futures_code, start_date, end_date):
     headers = auth_headers(token, APP_KEY, APP_SECRET, "FHKIF03020100")
     params = {
@@ -347,6 +365,29 @@ if st.session_state.get("조회완료") and APP_KEY and APP_SECRET:
                             st.caption(f"⚠️ 지표 계산 생략 (필요 컬럼 부족): {e}")
                             st.line_chart(minute_df.set_index(idx_col)[["종가"]])
             # --- 분봉 끝 ---
+
+            # --- 4단계: 옵션 프리미엄 디버그 (종목코드 확인 후 테스트) ---
+            with st.expander("🔍 [4단계 테스트] 옵션(콜/풋) 프리미엄 조회"):
+                st.caption("HTS에서 확인한 옵션 종목코드를 입력하세요 (선물 A01609처럼 영문+숫자 조합)")
+                col_call, col_put = st.columns(2)
+                call_code = col_call.text_input("콜옵션 종목코드", value="")
+                put_code = col_put.text_input("풋옵션 종목코드", value="")
+                if st.button("옵션 프리미엄 조회"):
+                    if call_code:
+                        call_res = get_option_price(token, call_code)
+                        st.write("콜옵션 상태 코드:", call_res.status_code)
+                        try:
+                            st.json(call_res.json())
+                        except Exception:
+                            st.write(call_res.text)
+                    if put_code:
+                        put_res = get_option_price(token, put_code)
+                        st.write("풋옵션 상태 코드:", put_res.status_code)
+                        try:
+                            st.json(put_res.json())
+                        except Exception:
+                            st.write(put_res.text)
+            # --- 옵션 디버그 끝 ---
 
         df = add_indicators(df)
         st.dataframe(df.tail(20).sort_values("일자", ascending=False), use_container_width=True)
