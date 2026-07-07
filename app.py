@@ -22,8 +22,8 @@ st.set_page_config(page_title="통합매매법 KIS 대시보드", layout="wide")
 # =========================================================
 # 0. 앱키/시크릿 - Streamlit Cloud의 Secrets에서 불러옵니다
 #    (Settings -> Secrets 에서 아래처럼 등록)
-#    APP_KEY = "PSmDVHmVMJAuZ1uoC8bhZ8WeYtS3LrIXoAF7"
-#    APP_SECRET = "c/jvVP4aUhe10hG5bdCUNEFIGryiI1gOty1dN0U81mSC5okeJMypknqUTCY7DNF5eHOsj9ZAGeFMfKAjSgq8L1H9ZVs94Ks0OILJ7STvBVirhqh32AbJN0tKn6YhmwiWlOtoZDjKWlNWKO2lzyztuAmNGvFhi4ns5hrne97tlSGgjlIbzHg="
+#    APP_KEY = "PSMASpQKNi6pFrOKWAksNJafC0Iree9GWA4s"
+#    APP_SECRET = "zgJPXDmrSO6OltPRNE5kdTgouqDX1waPfmkn4e98XK6OcSsx/XUQnrjGqjTPy6sqcO58pgdAw3qbOZK+xg9DF0eS4bh0vPBeU1Qu3SgsueBmGUJ/Ulwq3G95cnqgBgz8vvzj9315TFwYjuwxamLfz6W+ikNdmIe3OkOtg2XDvq+RjZZlBKc="
 # =========================================================
 try:
     APP_KEY = st.secrets["APP_KEY"]
