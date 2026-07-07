@@ -209,6 +209,25 @@ if st.button("조회 시작") and APP_KEY and APP_SECRET and stock_code:
             df = get_daily_ohlcv(token, stock_code, start, end)
         else:
             st.subheader("1~2. 선물 일봉 데이터")
+
+            # --- 디버그: API 원본 응답 확인용 (문제 해결 후 지워도 됩니다) ---
+            debug_headers = auth_headers(token, APP_KEY, APP_SECRET, "FHKIF03020100")
+            debug_params = {
+                "FID_COND_MRKT_DIV_CODE": "F",
+                "FID_INPUT_ISCD": stock_code,
+                "FID_INPUT_DATE_1": start,
+                "FID_INPUT_DATE_2": end,
+                "FID_PERIOD_DIV_CODE": "D",
+            }
+            debug_res = requests.get(
+                f"{URL_BASE}/uapi/domestic-futureoption/v1/quotations/inquire-daily-fuopchartprice",
+                headers=debug_headers, params=debug_params,
+            )
+            with st.expander("🔍 API 원본 응답 (디버그용 - 문제 진단 후 삭제 가능)"):
+                st.write("상태 코드:", debug_res.status_code)
+                st.json(debug_res.json())
+            # --- 디버그 끝 ---
+
             df = get_futures_daily_ohlcv(token, stock_code, start, end)
             if len(df) > 0:
                 latest = df.iloc[-1]
