@@ -250,6 +250,102 @@ def describe_wave_sequence(pivots: pd.DataFrame, price: float, max_waves: int = 
     return lines
 
 
+def compute_abc_phase(df: pd.DataFrame, price: float, threshold_pct: float,
+                       time_col: str = "일자") -> dict:
+    """
+    지그재그 전환점 중 가장 큰 폭의 연속 구간을 A파로, 그 다음 전환점을 B파로 삼아
+    A-B-C 국면(값 + 국면판정)을 계산한다. 일봉("일자")/분봉("시간") 공용.
+    """
+    pivots = find_zigzag_pivots(df, threshold_pct=threshold_pct, time_col=time_col)
+    result = {"ok": False}
+    if len(pivots) < 2:
+        result["error"] = "전환점 부족 (민감도를 낮춰보세요)"
+        return result
+
+    pivots = pivots.reset_index(drop=True)
+    best_i, best_move = 0, 0
+    for i in range(len(pivots) - 1):
+        move = abs(pivots.loc[i + 1, "가격"] - pivots.loc[i, "가격"])
+        if move > best_move:
+            best_move = move
+            best_i = i
+
+    a_start_row = pivots.loc[best_i]
+    a_end_row = pivots.loc[best_i + 1]
+    a_start_val, a_end_val = a_start_row["가격"], a_end_row["가격"]
+    a_start_t, a_end_t = a_start_row[time_col], a_end_row[time_col]
+    a_direction = "하락(고점→저점)" if a_start_val > a_end_val else "상승(저점→고점)"
+    a_move = abs(a_start_val - a_end_val)
+    is_down = a_direction.startswith("하락")
+
+    result.update({
+        "ok": True, "a_start_val": a_start_val, "a_end_val": a_end_val,
+        "a_start_t": a_start_t, "a_end_t": a_end_t, "a_direction": a_direction,
+        "a_move": a_move, "b_val": None, "phase": "A파 지속/저점 다지기",
+    })
+
+    b_row = pivots.loc[best_i + 2] if best_i + 2 < len(pivots) else None
+    if b_row is not None and a_move > 0:
+        b_val, b_t = b_row["가격"], b_row[time_col]
+        b_retrace = (b_val - a_end_val) / a_move * 100 if is_down else (a_end_val - b_val) / a_move * 100
+        c_progress = abs(price - b_val) / a_move * 100
+        c_target = (b_val - a_move * 0.62) if is_down else (b_val + a_move * 0.62)
+        phase = "B파 진행 중" if c_progress < 15 else "C파 진행 중"
+        result.update({
+            "b_val": b_val, "b_t": b_t, "b_retrace": b_retrace,
+            "c_progress": c_progress, "c_target": c_target, "phase": phase,
+        })
+    return result
+
+
+def format_bangjang_block(label: str, phase: dict) -> list:
+    """compute_abc_phase() 결과를 산강식 매매기준선 텍스트 블록으로 포맷."""
+    lines = [f"**[{label}]**"]
+    if not phase.get("ok"):
+        lines.append(f"- {phase.get('error', '계산 불가')}")
+        return lines
+
+    lines.append(f"- A파: {phase['a_start_val']:,.2f}({phase['a_start_t']}) → "
+                 f"{phase['a_end_val']:,.2f}({phase['a_end_t']}), {phase['a_direction']}")
+    if phase.get("b_val") is not None:
+        lines.append(f"- B파: {phase['b_val']:,.2f}({phase['b_t']}), "
+                     f"A파의 {phase['b_retrace']:.1f}% 되돌림")
+        lines.append(f"- C파 진행률: 약 {phase['c_progress']:.0f}%, C파 목표(근사): {phase['c_target']:,.2f}")
+    lines.append(f"- 국면 판정: **{phase['phase']}**")
+    return lines
+
+
+def analyze_sangang_baseline(price: float,
+                              daily_df: pd.DataFrame,
+                              minute_dfs: dict,
+                              daily_threshold: float = 3.0) -> str:
+    """
+    산강 매매기준선: 일봉 + 여러 분봉(3분/15분/60분 등)을 같은 방식(지그재그 A-B-C)으로
+    각각 독립 계산해서 한 번에 비교할 수 있는 통합 리포트를 만든다.
+    minute_dfs: {"3분봉": (df, threshold_pct), "15분봉": (df, threshold_pct), ...}
+    """
+    lines = ["## 📍 산강 매매기준선 (멀티 타임프레임 A-B-C 국면)"]
+    lines.append("")
+
+    daily_phase = compute_abc_phase(daily_df, price, daily_threshold, time_col="일자")
+    lines.extend(format_bangjang_block(f"일봉 기준 (민감도 {daily_threshold}%)", daily_phase))
+    lines.append("")
+
+    for label, (mdf, th) in minute_dfs.items():
+        if mdf is None or mdf.empty:
+            lines.append(f"**[{label}]**")
+            lines.append("- 데이터 없음")
+            lines.append("")
+            continue
+        m_price = mdf["종가"].iloc[-1]
+        m_phase = compute_abc_phase(mdf, m_price, th, time_col="시간")
+        lines.extend(format_bangjang_block(f"{label} 기준 (민감도 {th}%, 현재가 {m_price:,.2f})", m_phase))
+        lines.append("")
+
+    lines.append("⚠️ 타임프레임별로 A파를 각자 독립 산출하므로 값이 서로 다르게 나오는 것이 정상입니다.")
+    return "\n".join(lines)
+
+
 def analyze_minute_abc(minute_df: pd.DataFrame, price: float, threshold_pct: float = 0.5,
                         time_col: str = "시간") -> list:
     """
