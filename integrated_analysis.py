@@ -80,6 +80,9 @@ def analyze_hourly_support_resistance(hourly_df: pd.DataFrame, current_price: fl
         lines.append("- 접촉 횟수 많음 → X자리(재접촉) 가능성, 진입 신중 필요")
 
     return lines
+
+
+def channel_levels(high: float, low: float) -> dict:
     rng = high - low
     return {
         "0%": low, "25%": low + rng * 0.25, "50%": low + rng * 0.5,
