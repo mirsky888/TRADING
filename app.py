@@ -180,15 +180,21 @@ def get_futures_daily_ohlcv(token, futures_code, start_date, end_date, chunk_day
     chunk_start = start_dt
     while chunk_start <= end_dt:
         chunk_end = min(chunk_start + timedelta(days=chunk_days - 1), end_dt)
-        try:
-            part = _get_futures_daily_ohlcv_single(
-                token, futures_code,
-                chunk_start.strftime("%Y%m%d"), chunk_end.strftime("%Y%m%d"),
-            )
-            if not part.empty:
-                all_dfs.append(part)
-        except Exception as e:
-            st.caption(f"⚠️ {chunk_start.strftime('%Y%m%d')}~{chunk_end.strftime('%Y%m%d')} 구간 조회 실패: {e}")
+        part = None
+        for attempt in range(3):  # 최초 시도 + 2회 재시도
+            try:
+                part = _get_futures_daily_ohlcv_single(
+                    token, futures_code,
+                    chunk_start.strftime("%Y%m%d"), chunk_end.strftime("%Y%m%d"),
+                )
+                break
+            except Exception as e:
+                if attempt < 2:
+                    time.sleep(0.5 * (attempt + 1))
+                else:
+                    st.caption(f"⚠️ {chunk_start.strftime('%Y%m%d')}~{chunk_end.strftime('%Y%m%d')} 구간 조회 실패(재시도 3회 모두 실패): {e}")
+        if part is not None and not part.empty:
+            all_dfs.append(part)
         chunk_start = chunk_end + timedelta(days=1)
 
     if not all_dfs:
