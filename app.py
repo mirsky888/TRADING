@@ -465,10 +465,24 @@ if st.session_state.get("조회완료") and APP_KEY and APP_SECRET:
                         st.error("분봉 데이터가 비어있습니다. 아래 원본 응답을 확인해주세요.")
                         st.json(raw)
                     else:
-                        # 필드명이 예상과 맞는지 확인할 수 있도록 원본 첫 항목도 함께 표시
-                        with st.expander("🔍 원본 응답 첫 항목 (필드명 확인용)"):
-                            if raw.get("output2"):
-                                st.json(raw["output2"][0])
+                        # 필드명이 예상과 맞는지, 그리고 오늘 날짜 데이터가 실제로 존재하는지
+                        # 직접 확인할 수 있도록 output2 전체의 일자 목록을 요약해서 보여준다.
+                        with st.expander("🔍 원본 응답 진단 (오늘 날짜 포함 여부 확인용)", expanded=True):
+                            output2 = raw.get("output2", [])
+                            st.write(f"output2 총 {len(output2)}개 항목")
+                            if output2:
+                                st.write("첫 항목:", output2[0])
+                                st.write("마지막 항목:", output2[-1])
+                                dates_in_response = sorted(set(
+                                    item.get("stck_bsop_date", "?") for item in output2
+                                ), reverse=True)
+                                st.write("응답에 포함된 전체 일자 목록:", dates_in_response)
+                                today_str = datetime.today().strftime("%Y%m%d")
+                                if today_str in dates_in_response:
+                                    st.success(f"✅ 오늘({today_str}) 날짜 데이터가 응답에 포함되어 있습니다")
+                                else:
+                                    st.error(f"❌ 오늘({today_str}) 날짜 데이터가 응답에 전혀 없습니다 — "
+                                             f"API가 오늘 데이터를 아직 안 주고 있다는 뜻입니다")
 
                         st.success(f"분봉 데이터 {len(minute_df)}개 로드 완료")
                         st.dataframe(minute_df.tail(30), use_container_width=True)
