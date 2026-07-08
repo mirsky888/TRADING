@@ -355,6 +355,7 @@ if st.session_state.get("조회완료") and APP_KEY and APP_SECRET:
         else:
             # --- 최상단: 산강 매매기준 대시보드용 3분/15분/60분봉 우선 조회 ---
             hourly_df, df_3min, df_15min = None, None, None
+            hourly_raw, raw_3, raw_15 = None, None, None
             try:
                 hourly_raw = get_futures_minute_ohlcv(token, stock_code, "60")
                 hourly_df = parse_futures_minute_ohlcv(hourly_raw)
@@ -381,12 +382,27 @@ if st.session_state.get("조회완료") and APP_KEY and APP_SECRET:
             time.sleep(0.3)
 
             dash_price = None
-            if df_3min is not None and not df_3min.empty:
-                dash_price = df_3min["종가"].iloc[-1]
-            elif df_15min is not None and not df_15min.empty:
-                dash_price = df_15min["종가"].iloc[-1]
-            elif hourly_df is not None and not hourly_df.empty:
-                dash_price = hourly_df["종가"].iloc[-1]
+            # 1순위: output1의 실시간 현재가 (분봉 차트 자체는 전일까지만 나오는 API 특성이
+            #        있어도, output1.futs_prpr은 실시간으로 갱신되는 값이라 이걸 우선 사용)
+            for raw_resp in [raw_3, raw_15, hourly_raw]:
+                if raw_resp and raw_resp.get("output1", {}).get("futs_prpr"):
+                    try:
+                        dash_price = float(raw_resp["output1"]["futs_prpr"])
+                        break
+                    except (TypeError, ValueError):
+                        pass
+            # 2순위(fallback): 분봉 종가 마지막값
+            if dash_price is None:
+                if df_3min is not None and not df_3min.empty:
+                    dash_price = df_3min["종가"].iloc[-1]
+                elif df_15min is not None and not df_15min.empty:
+                    dash_price = df_15min["종가"].iloc[-1]
+                elif hourly_df is not None and not hourly_df.empty:
+                    dash_price = hourly_df["종가"].iloc[-1]
+
+            st.caption("⚠️ 분봉 차트 API는 전일 마감까지의 데이터만 제공하는 것으로 확인되었습니다 "
+                       "(오늘 실시간 분봉은 미제공). 다만 위 현재가는 실시간 값을 사용합니다. "
+                       "아래 파동/채널 분석은 '가장 최근 확정된 거래일'의 분봉을 기준으로 계산된 것입니다.")
 
             if dash_price is not None:
                 dashboard_md = build_sangang_dashboard(
