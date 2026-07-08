@@ -260,10 +260,18 @@ def parse_futures_minute_ohlcv(raw_json):
     for c in ["종가", "시가", "고가", "저가", "거래량"]:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce")
-    # 시간 역순(최신이 먼저)으로 오는 경우가 많아 오름차순으로 정렬
-    if "시간" in df.columns:
+
+    # 중요: "시간"(HHMMSS)만으로 정렬하면 날짜가 다른 여러 거래일 데이터가 섞였을 때
+    # 예: 어제 15:45(154500)가 오늘 12:26(122600)보다 "숫자가 커서" 더 최신으로
+    # 잘못 정렬되는 버그가 있었음. 반드시 일자+시간을 합친 키로 정렬해야 한다.
+    if "일자" in df.columns and "시간" in df.columns:
+        df["_정렬키"] = df["일자"].astype(str) + df["시간"].astype(str)
+        df = df.sort_values("_정렬키").drop(columns="_정렬키").reset_index(drop=True)
+    elif "시간" in df.columns:
         df = df.sort_values("시간").reset_index(drop=True)
     return df
+
+
 def add_indicators(df):
     df = df.copy()
     for p in [5, 10, 20, 60, 120]:
